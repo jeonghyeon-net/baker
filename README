@@ -1,8 +1,191 @@
+baker
+=====
+
 Baker is a terminal app for managing git workspaces and worktrees.
 
-This repository intentionally uses a plain-text README file named README, not README.md.
+This repository intentionally uses a plain-text README file named README,
+not README.md.
 
-Shell integration:
-- First run installs a shell wrapper into ~/.zshrc or ~/.bashrc.
-- After installation, run `source ~/.zshrc` or `source ~/.bashrc` in the current shell.
-- The wrapper calls `baker __shell --result-file <tmpfile>` and changes directory after the TUI returns a target path.
+
+What Baker does
+---------------
+
+Baker manages two levels of objects:
+
+1. workspaces
+   - one Git repository per workspace
+   - stored as a bare repository under:
+     ~/.pi/repositories/<workspace>
+
+2. worktrees
+   - actual checked-out working directories for branches
+   - stored under:
+     ~/.pi/worktrees/<workspace>/<worktree>
+
+The app is designed for a shell-driven workflow:
+- run `baker`
+- pick an existing worktree, or on first use pick a GitHub repository
+- Baker returns the selected path to the shell wrapper
+- your current shell changes directory into that worktree
+
+
+Current behavior
+----------------
+
+At the current stage Baker supports:
+
+- zsh and bash shell integration
+- automatic shell hook installation
+- plain terminal UI for choosing an existing worktree
+- first-time GitHub repository selection through `gh repo list`
+- automatic creation of a workspace + initial worktree from the selected repo
+- Git bare-repository management under ~/.pi
+- remote-aware git operations implemented through the real `git` CLI
+
+The current first-time flow is:
+
+1. run `baker`
+2. if the shell hook is not installed, Baker writes it into ~/.zshrc or ~/.bashrc
+3. run `source ~/.zshrc` or `source ~/.bashrc`
+4. run `baker` again
+5. if no managed worktrees exist yet:
+   - Baker shows a GitHub repo picker using `gh`
+   - Baker creates or reuses a workspace for the selected repo
+   - Baker syncs remote refs
+   - Baker creates a worktree from the repo default branch (or first available branch)
+   - Baker returns that path to the shell
+6. if managed worktrees already exist:
+   - Baker shows the worktree list
+   - selecting one returns that path to the shell
+
+
+Requirements
+------------
+
+You need:
+
+- Go 1.26.0 for development
+- git
+- gh (GitHub CLI) logged in for repository discovery
+- zsh or bash for shell integration
+- mise if you want toolchain setup from this repo
+
+
+Development setup
+-----------------
+
+1. install tools
+
+   mise install
+
+2. run tests
+
+   go test ./...
+
+3. run the app directly
+
+   go run ./cmd/baker
+
+
+Shell integration
+-----------------
+
+Baker cannot directly change the parent shell's current directory by itself.
+To solve that, it installs a shell wrapper function.
+
+First run:
+- Baker installs a managed block into ~/.zshrc or ~/.bashrc
+- Baker tells you to source the file
+
+After that:
+- the shell wrapper runs `baker __shell --result-file <tmpfile>`
+- Baker writes the chosen path into that result file
+- the wrapper reads it and runs `cd` in the current shell
+
+If the managed block is edited or partially broken, Baker rewrites it.
+
+
+Filesystem layout
+-----------------
+
+Baker stores runtime data under ~/.pi:
+
+- ~/.pi/repositories/
+  bare repositories used as the git management layer
+
+- ~/.pi/worktrees/
+  actual working directories
+
+- ~/.pi/baker/workspaces.json
+  registry of known workspaces
+
+Example:
+
+- ~/.pi/repositories/jeonghyeon-net-baker
+- ~/.pi/worktrees/jeonghyeon-net-baker/main
+- ~/.pi/worktrees/jeonghyeon-net-baker/feature-login
+
+
+Repository structure
+--------------------
+
+- cmd/baker/
+  application entrypoint
+
+- internal/config/
+  path calculation and workspace registry persistence
+
+- internal/shell/
+  shell detection and hook installation
+
+- internal/git/
+  git CLI wrappers and parsing
+
+- internal/github/
+  GitHub repository discovery through `gh`
+
+- internal/workspace/
+  workspace creation and sync policies
+
+- internal/worktree/
+  worktree creation and deletion policies
+
+- internal/ui/
+  Bubble Tea based terminal model
+
+- internal/app/
+  startup-level application wiring
+
+
+Testing
+-------
+
+Run the full test suite with:
+
+   go test ./...
+
+The repo includes:
+- unit tests for config, shell, github, and UI behavior
+- parser tests for git output
+- integration tests for bare-repo git workflows
+
+
+Notes and limitations
+---------------------
+
+Current implementation is still an early version.
+Some lower-level services already exist for:
+- branch listing
+- worktree creation
+- worktree deletion modes
+- workspace sync
+
+But not every service is fully exposed through the shipped TUI yet.
+The codebase is structured so those flows can be expanded without changing
+Baker's storage model.
+
+
+License
+-------
+
+No license has been added yet.
