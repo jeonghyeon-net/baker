@@ -32,6 +32,21 @@ func (c Client) FetchAll(ctx context.Context, repoPath string) error {
 	return err
 }
 
+func (c Client) AddExistingBranchWorktree(ctx context.Context, repoPath, branch, worktreePath string) error {
+	_, err := c.runner().Run(ctx, "git", "--git-dir", repoPath, "worktree", "add", worktreePath, branch)
+	return err
+}
+
+func (c Client) AddNewBranchWorktree(ctx context.Context, repoPath, baseBranch, newBranch, worktreePath string) error {
+	_, err := c.runner().Run(ctx, "git", "--git-dir", repoPath, "worktree", "add", "-b", newBranch, worktreePath, baseBranch)
+	return err
+}
+
+func (c Client) PushBranch(ctx context.Context, worktreePath, branch string) error {
+	_, err := c.runner().Run(ctx, "git", "-C", worktreePath, "push", "-u", "origin", branch)
+	return err
+}
+
 func (c Client) ListBranches(ctx context.Context, repoPath string) ([]domain.BranchRef, error) {
 	remotes, err := c.runner().Run(ctx, "git", "--git-dir", repoPath, "remote")
 	if err != nil {
@@ -49,6 +64,41 @@ func (c Client) ListBranches(ctx context.Context, repoPath string) ([]domain.Bra
 	}
 
 	return ParseBranches(refs.Stdout)
+}
+
+func (c Client) ListWorktrees(ctx context.Context, repoPath string) ([]domain.Worktree, error) {
+	result, err := c.runner().Run(ctx, "git", "--git-dir", repoPath, "worktree", "list", "--porcelain")
+	if err != nil {
+		return nil, err
+	}
+
+	return ParseWorktrees(result.Stdout)
+}
+
+func (c Client) RemoveWorktree(ctx context.Context, repoPath, worktreePath string, force bool) error {
+	args := []string{"--git-dir", repoPath, "worktree", "remove"}
+	if force {
+		args = append(args, "--force")
+	}
+	args = append(args, worktreePath)
+
+	_, err := c.runner().Run(ctx, "git", args...)
+	return err
+}
+
+func (c Client) DeleteLocalBranch(ctx context.Context, repoPath, branch string, force bool) error {
+	deleteFlag := "-d"
+	if force {
+		deleteFlag = "-D"
+	}
+
+	_, err := c.runner().Run(ctx, "git", "--git-dir", repoPath, "branch", deleteFlag, branch)
+	return err
+}
+
+func (c Client) DeleteRemoteBranch(ctx context.Context, worktreePath, branch string) error {
+	_, err := c.runner().Run(ctx, "git", "-C", worktreePath, "push", "origin", "--delete", branch)
+	return err
 }
 
 func firstRemoteName(output string) string {
