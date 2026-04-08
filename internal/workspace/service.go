@@ -21,7 +21,12 @@ type Service struct {
 }
 
 func (s Service) CreateFromRemoteURL(ctx context.Context, remoteURL, workspaceName string) (domain.Workspace, error) {
-	workspaceName, err := validateWorkspaceName(workspaceName)
+	repositoriesRoot, err := validateRepositoriesRoot(s.Paths.RepositoriesRoot)
+	if err != nil {
+		return domain.Workspace{}, err
+	}
+
+	workspaceName, err = validateWorkspaceName(workspaceName)
 	if err != nil {
 		return domain.Workspace{}, err
 	}
@@ -31,7 +36,7 @@ func (s Service) CreateFromRemoteURL(ctx context.Context, remoteURL, workspaceNa
 		return domain.Workspace{}, err
 	}
 
-	repositoryPath := filepath.Join(s.Paths.RepositoriesRoot, workspaceName)
+	repositoryPath := filepath.Join(repositoriesRoot, workspaceName)
 	workspace := domain.Workspace{
 		Name:           workspaceName,
 		RemoteURL:      remoteURL,
@@ -58,7 +63,46 @@ func (s Service) CreateFromGitHubRepo(ctx context.Context, repo domain.GitHubRep
 }
 
 func (s Service) Sync(ctx context.Context, workspace domain.Workspace) error {
-	return s.Git.FetchAll(ctx, workspace.RepositoryPath)
+	repositoriesRoot, err := validateRepositoriesRoot(s.Paths.RepositoriesRoot)
+	if err != nil {
+		return err
+	}
+
+	repositoryPath, err := validateRepositoryPath(repositoriesRoot, workspace.RepositoryPath)
+	if err != nil {
+		return err
+	}
+
+	return s.Git.FetchAll(ctx, repositoryPath)
+}
+
+func validateRepositoriesRoot(root string) (string, error) {
+	if root == "" {
+		return "", fmt.Errorf("invalid repositories root: %q", root)
+	}
+
+	if !filepath.IsAbs(root) {
+		return "", fmt.Errorf("invalid repositories root: %q", root)
+	}
+
+	return filepath.Clean(root), nil
+}
+
+func validateRepositoryPath(repositoriesRoot, repositoryPath string) (string, error) {
+	if !filepath.IsAbs(repositoryPath) {
+		return "", fmt.Errorf("invalid repository path: %q", repositoryPath)
+	}
+
+	cleanRepositoryPath := filepath.Clean(repositoryPath)
+	rel, err := filepath.Rel(repositoriesRoot, cleanRepositoryPath)
+	if err != nil {
+		return "", fmt.Errorf("invalid repository path: %q", repositoryPath)
+	}
+	if rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("invalid repository path: %q", repositoryPath)
+	}
+
+	return cleanRepositoryPath, nil
 }
 
 func validateWorkspaceName(workspaceName string) (string, error) {

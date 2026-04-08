@@ -86,6 +86,27 @@ func TestServiceCreateFromRemoteURLRejectsEscapingWorkspaceName(t *testing.T) {
 	}
 }
 
+func TestServiceCreateFromRemoteURLRejectsRelativeRepositoriesRoot(t *testing.T) {
+	gitClient := &fakeGitClient{}
+	service := Service{
+		Git: gitClient,
+		Paths: config.Paths{
+			RepositoriesRoot: "repositories",
+		},
+	}
+
+	_, err := service.CreateFromRemoteURL(context.Background(), "git@github.com:jeonghyeon-net/baker.git", "jeonghyeon-net-baker")
+	if err == nil {
+		t.Fatal("CreateFromRemoteURL() error = nil, want error")
+	}
+	if err.Error() != "invalid repositories root: \"repositories\"" {
+		t.Fatalf("CreateFromRemoteURL() error = %q, want %q", err.Error(), "invalid repositories root: \"repositories\"")
+	}
+	if gitClient.cloneBareCalls != 0 {
+		t.Fatalf("CloneBare() call count = %d, want %d", gitClient.cloneBareCalls, 0)
+	}
+}
+
 func TestServiceCreateFromGitHubRepoCopiesDefaultBranch(t *testing.T) {
 	gitClient := &fakeGitClient{}
 	service := Service{
@@ -110,7 +131,10 @@ func TestServiceCreateFromGitHubRepoCopiesDefaultBranch(t *testing.T) {
 
 func TestServiceSyncFetchesAll(t *testing.T) {
 	gitClient := &fakeGitClient{}
-	service := Service{Git: gitClient}
+	service := Service{
+		Git:   gitClient,
+		Paths: config.DefaultPaths("/tmp"),
+	}
 	workspace := domain.Workspace{RepositoryPath: "/tmp/.pi/repositories/jeonghyeon-net-baker"}
 
 	if err := service.Sync(context.Background(), workspace); err != nil {
@@ -122,5 +146,25 @@ func TestServiceSyncFetchesAll(t *testing.T) {
 	}
 	if gitClient.fetchAllRepoPath != "/tmp/.pi/repositories/jeonghyeon-net-baker" {
 		t.Fatalf("FetchAll() repoPath = %q, want %q", gitClient.fetchAllRepoPath, "/tmp/.pi/repositories/jeonghyeon-net-baker")
+	}
+}
+
+func TestServiceSyncRejectsRepositoryPathOutsideRepositoriesRoot(t *testing.T) {
+	gitClient := &fakeGitClient{}
+	service := Service{
+		Git:   gitClient,
+		Paths: config.DefaultPaths("/tmp"),
+	}
+	workspace := domain.Workspace{RepositoryPath: "/tmp/outside/jeonghyeon-net-baker"}
+
+	err := service.Sync(context.Background(), workspace)
+	if err == nil {
+		t.Fatal("Sync() error = nil, want error")
+	}
+	if err.Error() != "invalid repository path: \"/tmp/outside/jeonghyeon-net-baker\"" {
+		t.Fatalf("Sync() error = %q, want %q", err.Error(), "invalid repository path: \"/tmp/outside/jeonghyeon-net-baker\"")
+	}
+	if gitClient.fetchAllCalls != 0 {
+		t.Fatalf("FetchAll() call count = %d, want %d", gitClient.fetchAllCalls, 0)
 	}
 }
