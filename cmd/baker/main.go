@@ -365,8 +365,15 @@ func createWorktreeForWorkspace(ctx context.Context, paths config.Paths, registr
 		if err != nil || selectedBranch == "" {
 			return "", err
 		}
-		result, err := worktreeService.CreateFromExistingBranch(ctx, workspace, branches, selectedBranch, worktreeNameForBranch(selectedBranch))
+		createCtx, cancelCreate := context.WithTimeout(ctx, workspaceCreateTimeout)
+		defer cancelCreate()
+		result, err := ui.RunStatusValue("불러오는 중", "워크트리 생성", selectedBranch+" 워크트리를 만들고 있습니다...", func() (bakerworktree.CreateResult, error) {
+			return worktreeService.CreateFromExistingBranch(createCtx, workspace, branches, selectedBranch, worktreeNameForBranch(selectedBranch))
+		})
 		if err != nil {
+			if errors.Is(createCtx.Err(), context.DeadlineExceeded) {
+				return "", fmt.Errorf("%s 워크트리를 %s 안에 만들지 못했습니다", selectedBranch, workspaceCreateTimeout)
+			}
 			return "", err
 		}
 		return result.Path, nil
@@ -383,8 +390,15 @@ func createWorktreeForWorkspace(ctx context.Context, paths config.Paths, registr
 	if newBranch == "" {
 		return "", nil
 	}
-	result, err := worktreeService.CreateFromNewBranch(ctx, workspace, baseBranch, newBranch, worktreeNameForBranch(newBranch))
+	createCtx, cancelCreate := context.WithTimeout(ctx, workspaceCreateTimeout)
+	defer cancelCreate()
+	result, err := ui.RunStatusValue("불러오는 중", "워크트리 생성", newBranch+" 워크트리를 만들고 있습니다...", func() (bakerworktree.CreateResult, error) {
+		return worktreeService.CreateFromNewBranch(createCtx, workspace, baseBranch, newBranch, worktreeNameForBranch(newBranch))
+	})
 	if err != nil {
+		if errors.Is(createCtx.Err(), context.DeadlineExceeded) {
+			return result.Path, fmt.Errorf("%s 워크트리를 %s 안에 만들지 못했습니다", newBranch, workspaceCreateTimeout)
+		}
 		return result.Path, err
 	}
 	return result.Path, nil
@@ -425,8 +439,15 @@ func openPullRequestWorktree(ctx context.Context, registry config.Registry, work
 	}
 	for _, branch := range branches {
 		if branch.Name == branchName {
-			result, err := worktreeService.CreateFromExistingBranch(ctx, workspace, branches, branchName, worktreeNameForBranch(branchName))
+			createCtx, cancelCreate := context.WithTimeout(ctx, workspaceCreateTimeout)
+			defer cancelCreate()
+			result, err := ui.RunStatusValue("불러오는 중", "PR 워크트리", branchName+" 워크트리를 만들고 있습니다...", func() (bakerworktree.CreateResult, error) {
+				return worktreeService.CreateFromExistingBranch(createCtx, workspace, branches, branchName, worktreeNameForBranch(branchName))
+			})
 			if err != nil {
+				if errors.Is(createCtx.Err(), context.DeadlineExceeded) {
+					return "", fmt.Errorf("%s 워크트리를 %s 안에 만들지 못했습니다", branchName, workspaceCreateTimeout)
+				}
 				return "", err
 			}
 			return result.Path, nil
