@@ -34,11 +34,33 @@ func (bootstrapShell) Ensure() (bool, string, error) {
 		return false, "", err
 	}
 
+	before, err := readFileOrEmpty(rcPath)
+	if err != nil {
+		return false, "", err
+	}
 	if err := bakershell.InstallHook(rcPath, shellName); err != nil {
 		return false, "", err
 	}
+	after, err := readFileOrEmpty(rcPath)
+	if err != nil {
+		return false, "", err
+	}
+	if before != after {
+		return false, fmt.Sprintf("source %s", rcPath), nil
+	}
 
-	return false, fmt.Sprintf("source %s", rcPath), nil
+	return true, "", nil
+}
+
+func readFileOrEmpty(path string) (string, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "", nil
+		}
+		return "", err
+	}
+	return string(data), nil
 }
 
 func main() {
@@ -68,6 +90,17 @@ func main() {
 	}
 	if result.Message != "" {
 		fmt.Println(result.Message)
+		return
+	}
+	if result.Mode == app.ModeInteractive {
+		selectedPath, err := runShellMode()
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		if selectedPath != "" {
+			fmt.Println(selectedPath)
+		}
 	}
 }
 
