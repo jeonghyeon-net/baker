@@ -61,7 +61,7 @@ func (m statusModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m statusModel) View() string {
 	body := m.spinner.View() + "  " + worktreeStyle.Render(m.message)
 	content := renderFrame(renderPanel(m.title, m.subtitle, body, metaStyle.Render("명령 실행 중에는 esc로 취소할 수 없습니다.")), m.width)
-	return appStyle.Render(content)
+	return renderRoot(content, m.width, m.height)
 }
 
 func waitStatus(resultCh <-chan statusResult) tea.Cmd {

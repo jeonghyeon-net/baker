@@ -212,10 +212,7 @@ func (m Model) View() string {
 	body := m.screenBody(title, footer)
 
 	content := renderFrame(renderPanel(title, subtitle, body, footer), m.Width)
-	if m.Width > 0 {
-		content = lipgloss.PlaceHorizontal(m.Width, lipgloss.Center, content)
-	}
-	return appStyle.Render(content)
+	return renderRoot(content, m.Width, m.Height)
 }
 
 func (m Model) screenChrome() (string, string, string) {
@@ -424,6 +421,17 @@ func (m Model) bodyHeight(title, footer string) int {
 		return 3
 	}
 	return available
+}
+
+func renderRoot(content string, windowWidth, windowHeight int) string {
+	content = appStyle.Render(content)
+	if windowWidth > 0 && windowHeight > 0 {
+		return lipgloss.Place(windowWidth, windowHeight, lipgloss.Center, lipgloss.Center, content)
+	}
+	if windowWidth > 0 {
+		return lipgloss.PlaceHorizontal(windowWidth, lipgloss.Center, content)
+	}
+	return content
 }
 
 func renderFrame(content string, windowWidth int) string {
