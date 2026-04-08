@@ -31,6 +31,15 @@ type WorktreeItem struct {
 	PullRequestTitle  string
 }
 
+type WorktreesLoadedMsg struct {
+	Worktrees []WorktreeItem
+}
+
+type WorkspacePullRequestsLoadedMsg struct {
+	WorkspaceName string
+	Items         []WorktreeItem
+}
+
 type State struct {
 	Screen            Screen
 	Title             string
@@ -107,6 +116,14 @@ func (m Model) Init() tea.Cmd { return nil }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case WorktreesLoadedMsg:
+		m.Worktrees = msg.Worktrees
+		m.Cursor = clampIndex(m.Cursor, m.listLength())
+		return m, nil
+	case WorkspacePullRequestsLoadedMsg:
+		m.Worktrees = mergeWorkspacePullRequests(m.Worktrees, msg.WorkspaceName, msg.Items)
+		m.Cursor = clampIndex(m.Cursor, m.listLength())
+		return m, nil
 	case tea.WindowSizeMsg:
 		m.Width = msg.Width
 		m.Height = msg.Height
@@ -135,7 +152,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 				case "d":
 					if item, ok := m.currentWorktreeItem(); ok {
-						if item.Selectable && item.Path != "" {
+						if item.Selectable && item.Path != "" && item.PullRequestNumber == 0 {
 							m.SelectedAction = "delete-worktree"
 							m.SelectedWorkspace = item.WorkspaceName
 							m.SelectedPath = item.Path
@@ -213,6 +230,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.SelectedAction = "open-pr-worktree"
 						m.SelectedWorkspace = item.WorkspaceName
 						m.SelectedBranch = item.BranchName
+						m.SelectedPath = item.Path
 						return m, tea.Quit
 					}
 					m.SelectedPath = item.Path
@@ -370,6 +388,65 @@ func renderActionPanel(lines []string) string {
 		rendered = append(rendered, metaStyle.Render(line))
 	}
 	return strings.Join(rendered, "\n")
+}
+
+func mergeWorkspacePullRequests(items []WorktreeItem, workspaceName string, prItems []WorktreeItem) []WorktreeItem {
+	if workspaceName == "" || len(items) == 0 {
+		return items
+	}
+
+	start := -1
+	end := len(items)
+	for i, item := range items {
+		if !item.Selectable && item.WorkspaceName == workspaceName {
+			start = i
+			continue
+		}
+		if start >= 0 && !item.Selectable {
+			end = i
+			break
+		}
+	}
+	if start < 0 {
+		return items
+	}
+
+	merged := append([]WorktreeItem{}, items[:start+1]...)
+	workspaceItems := make([]WorktreeItem, 0, end-start-1+len(prItems))
+	for _, item := range items[start+1 : end] {
+		if item.PullRequestNumber > 0 {
+			continue
+		}
+		workspaceItems = append(workspaceItems, item)
+	}
+	workspaceItems = append(workspaceItems, prItems...)
+	workspaceItems = relabelWorkspaceItems(workspaceItems)
+	merged = append(merged, workspaceItems...)
+	merged = append(merged, items[end:]...)
+	return merged
+}
+
+func relabelWorkspaceItems(items []WorktreeItem) []WorktreeItem {
+	relabeled := append([]WorktreeItem{}, items...)
+	for i := range relabeled {
+		last := i == len(relabeled)-1
+		if relabeled[i].PullRequestNumber > 0 {
+			connector := "├─"
+			if last {
+				connector = "└─"
+			}
+			relabeled[i].Label = fmt.Sprintf("  %s PR #%d %s", connector, relabeled[i].PullRequestNumber, relabeled[i].PullRequestTitle)
+			continue
+		}
+		if relabeled[i].Selectable {
+			connector := "├─"
+			if last {
+				connector = "└─"
+			}
+			relabeled[i].Label = "  " + connector + " " + relabeled[i].WorktreeName
+		}
+	}
+	return relabeled
 }
 
 func shouldShowBranchDetail(worktreeName, branchName string) bool {

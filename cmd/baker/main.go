@@ -135,12 +135,12 @@ func runShellMode(ctx context.Context) (string, error) {
 			return "", err
 		}
 
-		worktrees, err := loadWorktreeItems(ctx, paths, registry, gitClient, githubClient)
+		worktrees, err := loadWorktreeItems(ctx, paths, registry, gitClient)
 		if err != nil {
 			return "", err
 		}
 
-		selection, err := runWorktreeSelection(worktrees)
+		selection, err := runWorktreeSelection(ctx, worktrees, registry, githubClient)
 		if err != nil {
 			return "", err
 		}
@@ -164,7 +164,7 @@ func runShellMode(ctx context.Context) (string, error) {
 			}
 			continue
 		case "open-pr-worktree":
-			path, err := openPullRequestWorktree(ctx, registry, selection.SelectedWorkspace, selection.SelectedBranch, gitClient, workspaceService, worktreeService)
+			path, err := openPullRequestWorktree(ctx, registry, selection.SelectedWorkspace, selection.SelectedBranch, selection.SelectedPath, gitClient, workspaceService, worktreeService)
 			if err != nil {
 				return "", err
 			}
@@ -188,8 +188,25 @@ func runShellMode(ctx context.Context) (string, error) {
 	}
 }
 
-func runWorktreeSelection(worktrees []ui.WorktreeItem) (ui.Model, error) {
-	finalModel, err := tea.NewProgram(ui.NewModel(ui.State{Screen: ui.ScreenWorktrees, Worktrees: worktrees}), tea.WithAltScreen()).Run()
+func runWorktreeSelection(ctx context.Context, worktrees []ui.WorktreeItem, registry config.Registry, githubClient bakergithub.Client) (ui.Model, error) {
+	program := tea.NewProgram(ui.NewModel(ui.State{Screen: ui.ScreenWorktrees, Worktrees: worktrees}), tea.WithAltScreen())
+
+	loadCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	for _, workspace := range registry.Workspaces {
+		workspace := workspace
+		branchPaths := branchPathsForWorkspace(worktrees, workspace.Name)
+		go func() {
+			prs, err := githubClient.ListMyPullRequestsForRepository(loadCtx, workspace.Owner, workspace.Repo)
+			if err != nil {
+				return
+			}
+			program.Send(ui.WorkspacePullRequestsLoadedMsg{WorkspaceName: workspace.Name, Items: buildPullRequestItems(workspace.Name, prs, branchPaths)})
+		}()
+	}
+
+	finalModel, err := program.Run()
 	if err != nil {
 		return ui.Model{}, err
 	}
@@ -369,7 +386,10 @@ func createWorktreeForWorkspace(ctx context.Context, paths config.Paths, registr
 	return result.Path, nil
 }
 
-func openPullRequestWorktree(ctx context.Context, registry config.Registry, workspaceName, branchName string, gitClient bakergit.Client, workspaceService bakerworkspace.Service, worktreeService bakerworktree.Service) (string, error) {
+func openPullRequestWorktree(ctx context.Context, registry config.Registry, workspaceName, branchName, existingPath string, gitClient bakergit.Client, workspaceService bakerworkspace.Service, worktreeService bakerworktree.Service) (string, error) {
+	if existingPath != "" {
+		return existingPath, nil
+	}
 	workspace, ok := findWorkspace(registry, workspaceName)
 	if !ok {
 		return "", fmt.Errorf("워크스페이스를 찾을 수 없습니다: %s", workspaceName)
@@ -626,6 +646,33 @@ func runDeleteModeSelection() (string, error) {
 	return choice, nil
 }
 
+func branchPathsForWorkspace(items []ui.WorktreeItem, workspaceName string) map[string]string {
+	paths := make(map[string]string)
+	for _, item := range items {
+		if item.WorkspaceName != workspaceName || item.BranchName == "" || item.Path == "" {
+			continue
+		}
+		paths[item.BranchName] = item.Path
+	}
+	return paths
+}
+
+func buildPullRequestItems(workspaceName string, prs []domain.GitHubPullRequest, branchPaths map[string]string) []ui.WorktreeItem {
+	items := make([]ui.WorktreeItem, 0, len(prs))
+	for i, pr := range prs {
+		items = append(items, ui.WorktreeItem{
+			Label:             pullRequestLabel(pr.Number, pr.Title, i == len(prs)-1),
+			Path:              branchPaths[pr.HeadRefName],
+			WorkspaceName:     workspaceName,
+			BranchName:        pr.HeadRefName,
+			Selectable:        true,
+			PullRequestNumber: pr.Number,
+			PullRequestTitle:  pr.Title,
+		})
+	}
+	return items
+}
+
 func findWorkspace(registry config.Registry, workspaceName string) (domain.Workspace, bool) {
 	for _, workspace := range registry.Workspaces {
 		if workspace.Name == workspaceName {
@@ -639,7 +686,7 @@ func worktreeNameForBranch(branch string) string {
 	return strings.NewReplacer("/", "-", `\\`, "-").Replace(branch)
 }
 
-func loadWorktreeItems(ctx context.Context, paths config.Paths, registry config.Registry, gitClient bakergit.Client, githubClient bakergithub.Client) ([]ui.WorktreeItem, error) {
+func loadWorktreeItems(ctx context.Context, paths config.Paths, registry config.Registry, gitClient bakergit.Client) ([]ui.WorktreeItem, error) {
 	type workspaceItems struct {
 		name  string
 		items []ui.WorktreeItem
@@ -662,7 +709,6 @@ func loadWorktreeItems(ctx context.Context, paths config.Paths, registry config.
 		}
 
 		items := make([]ui.WorktreeItem, 0, len(gitWorktrees)+1)
-		branchesWithWorktrees := make(map[string]struct{}, len(gitWorktrees))
 		for _, worktree := range gitWorktrees {
 			if !strings.HasPrefix(filepath.Clean(worktree.Path), filepath.Clean(workspaceRoot)+string(filepath.Separator)) {
 				continue
@@ -674,30 +720,9 @@ func loadWorktreeItems(ctx context.Context, paths config.Paths, registry config.
 				BranchName:    worktree.BranchName,
 				Selectable:    true,
 			})
-			if worktree.BranchName != "" {
-				branchesWithWorktrees[worktree.BranchName] = struct{}{}
-			}
 		}
 
 		sort.Slice(items, func(i, j int) bool { return items[i].WorktreeName < items[j].WorktreeName })
-
-		prs, err := githubClient.ListMyPullRequestsForRepository(ctx, workspace.Owner, workspace.Repo)
-		if err != nil {
-			return nil, err
-		}
-		for _, pr := range prs {
-			if _, exists := branchesWithWorktrees[pr.HeadRefName]; exists {
-				continue
-			}
-			items = append(items, ui.WorktreeItem{
-				WorkspaceName:     workspace.Name,
-				BranchName:        pr.HeadRefName,
-				Selectable:        true,
-				PullRequestNumber: pr.Number,
-				PullRequestTitle:  pr.Title,
-			})
-		}
-
 		groups = append(groups, workspaceItems{name: workspace.Name, items: items})
 	}
 
@@ -707,11 +732,7 @@ func loadWorktreeItems(ctx context.Context, paths config.Paths, registry config.
 	for _, group := range groups {
 		worktrees = append(worktrees, ui.WorktreeItem{Label: "▾ " + group.name, WorkspaceName: group.name})
 		for i, item := range group.items {
-			if item.PullRequestNumber > 0 {
-				item.Label = pullRequestLabel(item.PullRequestNumber, item.PullRequestTitle, i == len(group.items)-1)
-			} else {
-				item.Label = worktreeLabel(item.WorktreeName, i == len(group.items)-1)
-			}
+			item.Label = worktreeLabel(item.WorktreeName, i == len(group.items)-1)
 			worktrees = append(worktrees, item)
 		}
 	}

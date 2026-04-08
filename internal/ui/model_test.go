@@ -68,7 +68,7 @@ func TestDeleteShortcutDoesNothingOnPullRequestRow(t *testing.T) {
 		Screen: ScreenWorktrees,
 		Worktrees: []WorktreeItem{
 			{Label: "▾ baker", WorkspaceName: "baker"},
-			{Label: "  └─ PR #42 로그인 수정", WorkspaceName: "baker", BranchName: "feature/login", PullRequestNumber: 42, PullRequestTitle: "로그인 수정", Selectable: true},
+			{Label: "  └─ PR #42 로그인 수정", WorkspaceName: "baker", Path: "/tmp/baker/feature-login", BranchName: "feature/login", PullRequestNumber: 42, PullRequestTitle: "로그인 수정", Selectable: true},
 		},
 		Cursor: 1,
 	})
@@ -126,7 +126,7 @@ func TestEnterOnPullRequestRowSelectsOpenPRAction(t *testing.T) {
 		Screen: ScreenWorktrees,
 		Worktrees: []WorktreeItem{
 			{Label: "▾ baker", WorkspaceName: "baker"},
-			{Label: "  └─ PR #42 로그인 수정", WorkspaceName: "baker", BranchName: "feature/login", PullRequestNumber: 42, PullRequestTitle: "로그인 수정", Selectable: true},
+			{Label: "  └─ PR #42 로그인 수정", WorkspaceName: "baker", Path: "/tmp/baker/feature-login", BranchName: "feature/login", PullRequestNumber: 42, PullRequestTitle: "로그인 수정", Selectable: true},
 		},
 		Cursor: 1,
 	})
@@ -142,6 +142,9 @@ func TestEnterOnPullRequestRowSelectsOpenPRAction(t *testing.T) {
 	}
 	if updated.SelectedBranch != "feature/login" {
 		t.Fatalf("SelectedBranch = %q", updated.SelectedBranch)
+	}
+	if updated.SelectedPath != "/tmp/baker/feature-login" {
+		t.Fatalf("SelectedPath = %q", updated.SelectedPath)
 	}
 }
 
