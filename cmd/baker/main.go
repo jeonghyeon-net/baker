@@ -25,6 +25,7 @@ import (
 
 const (
 	githubRepositoryListTimeout = 60 * time.Second
+	workspaceCreateTimeout      = 5 * time.Minute
 	workspaceSyncTimeout        = 30 * time.Second
 )
 
@@ -246,8 +247,16 @@ func addWorkspace(ctx context.Context, paths config.Paths, registry config.Regis
 			return err
 		}
 
-		_, updatedRegistry, err := ensureWorkspace(ctx, paths, registry, workspaceService, *selectedRepo)
+		createCtx, cancelCreate := context.WithTimeout(ctx, workspaceCreateTimeout)
+		defer cancelCreate()
+		updatedRegistry, err := ui.RunStatusValue("불러오는 중", "워크스페이스 추가", selectedRepo.NameWithOwner+" 워크스페이스를 만들고 있습니다...", func() (config.Registry, error) {
+			_, updatedRegistry, err := ensureWorkspace(createCtx, paths, registry, workspaceService, *selectedRepo)
+			return updatedRegistry, err
+		})
 		if err != nil {
+			if errors.Is(createCtx.Err(), context.DeadlineExceeded) {
+				return fmt.Errorf("워크스페이스 추가를 %s 안에 끝내지 못했습니다", workspaceCreateTimeout)
+			}
 			return err
 		}
 		if err := config.SaveRegistry(paths.RegistryFile, updatedRegistry); err != nil {
@@ -264,8 +273,15 @@ func addWorkspace(ctx context.Context, paths config.Paths, registry config.Regis
 		if workspaceName == "" {
 			workspaceName = strings.ReplaceAll(strings.TrimSuffix(filepath.Base(remoteURL), ".git"), "/", "-")
 		}
-		workspace, err := workspaceService.CreateFromRemoteURL(ctx, remoteURL, workspaceName)
+		createCtx, cancelCreate := context.WithTimeout(ctx, workspaceCreateTimeout)
+		defer cancelCreate()
+		workspace, err := ui.RunStatusValue("불러오는 중", "워크스페이스 추가", workspaceName+" 워크스페이스를 만들고 있습니다...", func() (domain.Workspace, error) {
+			return workspaceService.CreateFromRemoteURL(createCtx, remoteURL, workspaceName)
+		})
 		if err != nil {
+			if errors.Is(createCtx.Err(), context.DeadlineExceeded) {
+				return fmt.Errorf("워크스페이스 추가를 %s 안에 끝내지 못했습니다", workspaceCreateTimeout)
+			}
 			return err
 		}
 		registry.Workspaces = append(registry.Workspaces, workspace)
