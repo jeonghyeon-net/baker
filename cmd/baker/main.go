@@ -647,7 +647,7 @@ func runBranchSelection(branches []string, includeNewBranchOption bool) (string,
 	if includeNewBranchOption {
 		items = append(items, ui.NewBranchOption)
 	}
-	items = append(items, branches...)
+	items = append(items, prioritizedBranchNames(branches)...)
 
 	finalModel, err := tea.NewProgram(ui.NewModel(ui.State{Screen: ui.ScreenCreateWorktree, Title: "브랜치 선택", Hint: "enter 선택 • esc 취소", Branches: items}), tea.WithAltScreen()).Run()
 	if err != nil {
@@ -669,6 +669,32 @@ func runDeleteModeSelection() (string, error) {
 		return "", err
 	}
 	return choice, nil
+}
+
+func prioritizedBranchNames(branches []string) []string {
+	priority := []string{"development", "production", "main"}
+	ordered := make([]string, 0, len(branches))
+	used := make(map[string]struct{}, len(branches))
+
+	for _, name := range priority {
+		for _, branch := range branches {
+			if branch != name {
+				continue
+			}
+			ordered = append(ordered, branch)
+			used[branch] = struct{}{}
+			break
+		}
+	}
+
+	for _, branch := range branches {
+		if _, ok := used[branch]; ok {
+			continue
+		}
+		ordered = append(ordered, branch)
+	}
+
+	return ordered
 }
 
 func branchPathsForWorkspace(items []ui.WorktreeItem, workspaceName string) map[string]string {
