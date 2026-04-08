@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 )
 
 type Screen string
@@ -43,6 +44,14 @@ type State struct {
 type Model struct {
 	State
 }
+
+var (
+	workspaceStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("12"))
+	selectedStyle  = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("230")).Background(lipgloss.Color("62")).Padding(0, 1)
+	normalStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("252"))
+	metaStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
+	titleStyle     = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("14"))
+)
 
 func NewModel(state State) Model {
 	model := Model{State: state}
@@ -136,24 +145,32 @@ func (m Model) View() string {
 	switch m.Screen {
 	case ScreenWorktrees:
 		if len(m.Worktrees) == 0 {
-			return "No workspaces or worktrees\n\nKeys: a add workspace, q quit"
+			return titleStyle.Render("baker") + "\n\n" + metaStyle.Render("No workspaces or worktrees") + "\n\n" + metaStyle.Render("Keys: a add workspace, q quit")
 		}
 		var lines []string
 		cursor := clampIndex(m.Cursor, len(m.Worktrees))
 		for i, item := range m.Worktrees {
-			prefix := "  "
-			if i == cursor {
-				prefix = "> "
+			if item.Selectable {
+				label := normalStyle.Render(item.Label)
+				if i == cursor {
+					label = selectedStyle.Render(item.Label)
+				}
+				lines = append(lines, label)
+				continue
 			}
-			lines = append(lines, prefix+item.Label)
+			label := workspaceStyle.Render(item.Label)
+			if i == cursor {
+				label = selectedStyle.Render(item.Label)
+			}
+			lines = append(lines, label)
 		}
-		return strings.Join(lines, "\n") + "\n\nKeys: enter open, a add workspace, c create worktree, d delete worktree, q quit"
+		return titleStyle.Render("baker") + "\n\n" + strings.Join(lines, "\n") + "\n\n" + metaStyle.Render("Keys: enter open, a add workspace, c create worktree, d delete worktree, q quit")
 	case ScreenWorkspaceGitHubPicker:
-		return renderList(m.Repositories, m.Cursor, "No repositories")
+		return titleStyle.Render("select repository") + "\n\n" + renderList(m.Repositories, m.Cursor, "No repositories")
 	case ScreenCreateWorktree:
-		return renderList(m.Branches, m.Cursor, "No branches")
+		return titleStyle.Render("select branch") + "\n\n" + renderList(m.Branches, m.Cursor, "No branches")
 	case ScreenDeleteConfirm:
-		return renderList(m.DeleteModes, m.Cursor, "No delete modes")
+		return titleStyle.Render("delete mode") + "\n\n" + renderList(m.DeleteModes, m.Cursor, "No delete modes")
 	default:
 		return ""
 	}
@@ -183,16 +200,16 @@ func (m Model) currentWorktreeItem() (WorktreeItem, bool) {
 
 func renderList(items []string, cursor int, empty string) string {
 	if len(items) == 0 {
-		return empty
+		return metaStyle.Render(empty)
 	}
 	cursor = clampIndex(cursor, len(items))
 	lines := make([]string, 0, len(items))
 	for i, item := range items {
-		prefix := "  "
 		if i == cursor {
-			prefix = "> "
+			lines = append(lines, selectedStyle.Render(item))
+			continue
 		}
-		lines = append(lines, prefix+item)
+		lines = append(lines, normalStyle.Render(item))
 	}
 	return strings.Join(lines, "\n")
 }

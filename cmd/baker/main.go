@@ -181,29 +181,59 @@ func runWorktreeSelection(worktrees []ui.WorktreeItem) (ui.Model, error) {
 }
 
 func addWorkspace(ctx context.Context, paths config.Paths, registry config.Registry, githubClient bakergithub.Client, workspaceService bakerworkspace.Service) error {
-	repos, err := githubClient.ListRepositories(ctx)
-	if err != nil {
+	mode, err := promptAddWorkspaceMode()
+	if err != nil || mode == "" {
 		return err
 	}
-	if len(repos) == 0 {
-		fmt.Println("표시할 GitHub 저장소가 없습니다.")
+
+	switch mode {
+	case "github":
+		fmt.Println("Loading GitHub repositories...")
+		repos, err := githubClient.ListRepositories(ctx)
+		if err != nil {
+			return err
+		}
+		if len(repos) == 0 {
+			fmt.Println("표시할 GitHub 저장소가 없습니다.")
+			return nil
+		}
+
+		selectedRepo, err := runRepositorySelection(repos)
+		if err != nil || selectedRepo == nil {
+			return err
+		}
+
+		_, updatedRegistry, err := ensureWorkspace(ctx, paths, registry, workspaceService, *selectedRepo)
+		if err != nil {
+			return err
+		}
+		if err := config.SaveRegistry(paths.RegistryFile, updatedRegistry); err != nil {
+			return err
+		}
+		fmt.Printf("workspace added: %s\n", strings.ReplaceAll(selectedRepo.NameWithOwner, "/", "-"))
+		return nil
+	case "url":
+		remoteURL, err := promptText("remote url")
+		if err != nil || remoteURL == "" {
+			return err
+		}
+		workspaceName := suggestedWorkspaceNameFromRemote(remoteURL)
+		if workspaceName == "" {
+			workspaceName = strings.ReplaceAll(strings.TrimSuffix(filepath.Base(remoteURL), ".git"), "/", "-")
+		}
+		workspace, err := workspaceService.CreateFromRemoteURL(ctx, remoteURL, workspaceName)
+		if err != nil {
+			return err
+		}
+		registry.Workspaces = append(registry.Workspaces, workspace)
+		if err := config.SaveRegistry(paths.RegistryFile, registry); err != nil {
+			return err
+		}
+		fmt.Printf("workspace added: %s\n", workspace.Name)
+		return nil
+	default:
 		return nil
 	}
-
-	selectedRepo, err := runRepositorySelection(repos)
-	if err != nil || selectedRepo == nil {
-		return err
-	}
-
-	_, updatedRegistry, err := ensureWorkspace(ctx, paths, registry, workspaceService, *selectedRepo)
-	if err != nil {
-		return err
-	}
-	if err := config.SaveRegistry(paths.RegistryFile, updatedRegistry); err != nil {
-		return err
-	}
-	fmt.Printf("workspace added: %s\n", strings.ReplaceAll(selectedRepo.NameWithOwner, "/", "-"))
-	return nil
 }
 
 func createWorktreeForWorkspace(ctx context.Context, paths config.Paths, registry config.Registry, workspaceName string, gitClient bakergit.Client, workspaceService bakerworkspace.Service, worktreeService bakerworktree.Service) (string, error) {
@@ -211,6 +241,16 @@ func createWorktreeForWorkspace(ctx context.Context, paths config.Paths, registr
 	if !ok {
 		return "", fmt.Errorf("workspace not found: %s", workspaceName)
 	}
+
+	mode, err := promptCreateMode()
+	if err != nil {
+		return "", err
+	}
+	if mode == "" {
+		return "", nil
+	}
+
+	fmt.Printf("Loading branches for workspace %s...\n", workspaceName)
 	if err := workspaceService.Sync(ctx, workspace); err != nil {
 		return "", err
 	}
@@ -220,14 +260,6 @@ func createWorktreeForWorkspace(ctx context.Context, paths config.Paths, registr
 	}
 	if len(branches) == 0 {
 		return "", fmt.Errorf("no branches available for workspace %s", workspaceName)
-	}
-
-	mode, err := promptCreateMode()
-	if err != nil {
-		return "", err
-	}
-	if mode == "" {
-		return "", nil
 	}
 
 	branchNames := make([]string, 0, len(branches))
@@ -364,6 +396,38 @@ func defaultBranchName(repo domain.GitHubRepo, workspace domain.Workspace, branc
 		return branches[0].Name
 	}
 	return ""
+}
+
+func promptAddWorkspaceMode() (string, error) {
+	reader := bufio.NewReader(os.Stdin)
+	fmt.Println("add workspace")
+	fmt.Println("1. GitHub repository picker")
+	fmt.Println("2. remote URL input")
+	fmt.Println("q. cancel")
+	fmt.Print("> ")
+
+	input, err := reader.ReadString('\n')
+	if err != nil {
+		return "", err
+	}
+	switch strings.TrimSpace(input) {
+	case "1":
+		return "github", nil
+	case "2":
+		return "url", nil
+	default:
+		return "", nil
+	}
+}
+
+func suggestedWorkspaceNameFromRemote(remoteURL string) string {
+	trimmed := strings.TrimPrefix(remoteURL, "git@github.com:")
+	trimmed = strings.TrimSuffix(trimmed, ".git")
+	parts := strings.Split(trimmed, "/")
+	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+		return ""
+	}
+	return parts[0] + "-" + parts[1]
 }
 
 func promptCreateMode() (string, error) {
