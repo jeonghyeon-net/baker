@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"context"
 	"flag"
 	"fmt"
@@ -324,7 +323,7 @@ func runRepositorySelection(repos []domain.GitHubRepo) (*domain.GitHubRepo, erro
 		names = append(names, repo.NameWithOwner)
 	}
 
-	finalModel, err := tea.NewProgram(ui.NewModel(ui.State{Screen: ui.ScreenWorkspaceGitHubPicker, Repositories: names})).Run()
+	finalModel, err := tea.NewProgram(ui.NewModel(ui.State{Screen: ui.ScreenWorkspaceGitHubPicker, Title: "Select repository", Hint: "Enter to select, esc to cancel", Repositories: names})).Run()
 	if err != nil {
 		return nil, err
 	}
@@ -398,26 +397,24 @@ func defaultBranchName(repo domain.GitHubRepo, workspace domain.Workspace, branc
 	return ""
 }
 
-func promptAddWorkspaceMode() (string, error) {
-	reader := bufio.NewReader(os.Stdin)
-	fmt.Println("add workspace")
-	fmt.Println("1. GitHub repository picker")
-	fmt.Println("2. remote URL input")
-	fmt.Println("q. cancel")
-	fmt.Print("> ")
-
-	input, err := reader.ReadString('\n')
+func runOptionSelection(title, hint string, options []string) (string, error) {
+	finalModel, err := tea.NewProgram(ui.NewModel(ui.State{Screen: ui.ScreenOptions, Title: title, Hint: hint, Options: options})).Run()
 	if err != nil {
 		return "", err
 	}
-	switch strings.TrimSpace(input) {
-	case "1":
-		return "github", nil
-	case "2":
-		return "url", nil
-	default:
-		return "", nil
+	selected, ok := finalModel.(ui.Model)
+	if !ok {
+		return "", fmt.Errorf("unexpected ui model type %T", finalModel)
 	}
+	return selected.SelectedAction, nil
+}
+
+func promptAddWorkspaceMode() (string, error) {
+	choice, err := runOptionSelection("Add workspace", "Enter to select, esc to cancel", []string{"github", "url"})
+	if err != nil {
+		return "", err
+	}
+	return choice, nil
 }
 
 func suggestedWorkspaceNameFromRemote(remoteURL string) string {
@@ -431,35 +428,15 @@ func suggestedWorkspaceNameFromRemote(remoteURL string) string {
 }
 
 func promptCreateMode() (string, error) {
-	reader := bufio.NewReader(os.Stdin)
-	fmt.Println("create worktree")
-	fmt.Println("1. existing branch")
-	fmt.Println("2. new branch from base branch")
-	fmt.Println("q. cancel")
-	fmt.Print("> ")
-
-	input, err := reader.ReadString('\n')
+	choice, err := runOptionSelection("Create worktree", "Enter to select, esc to cancel", []string{"existing", "new"})
 	if err != nil {
 		return "", err
 	}
-	switch strings.TrimSpace(input) {
-	case "1":
-		return "existing", nil
-	case "2":
-		return "new", nil
-	default:
-		return "", nil
-	}
+	return choice, nil
 }
 
 func promptText(label string) (string, error) {
-	reader := bufio.NewReader(os.Stdin)
-	fmt.Printf("%s: ", label)
-	input, err := reader.ReadString('\n')
-	if err != nil {
-		return "", err
-	}
-	return strings.TrimSpace(input), nil
+	return ui.PromptText(label, "Enter to submit, esc to cancel", label)
 }
 
 func runBranchSelection(branches []string, includeNewBranchOption bool) (string, error) {
@@ -469,7 +446,7 @@ func runBranchSelection(branches []string, includeNewBranchOption bool) (string,
 	}
 	items = append(items, branches...)
 
-	finalModel, err := tea.NewProgram(ui.NewModel(ui.State{Screen: ui.ScreenCreateWorktree, Branches: items})).Run()
+	finalModel, err := tea.NewProgram(ui.NewModel(ui.State{Screen: ui.ScreenCreateWorktree, Title: "Select branch", Hint: "Enter to select, esc to cancel", Branches: items})).Run()
 	if err != nil {
 		return "", err
 	}
@@ -485,7 +462,7 @@ func runBranchSelection(branches []string, includeNewBranchOption bool) (string,
 
 func runDeleteModeSelection() (string, error) {
 	modes := []string{string(bakerworktree.DeleteModeLocalBranch), string(bakerworktree.DeleteModeAll)}
-	finalModel, err := tea.NewProgram(ui.NewModel(ui.State{Screen: ui.ScreenDeleteConfirm, DeleteModes: modes})).Run()
+	finalModel, err := tea.NewProgram(ui.NewModel(ui.State{Screen: ui.ScreenDeleteConfirm, Title: "Delete worktree", Hint: "Default is local branch deletion", DeleteModes: modes})).Run()
 	if err != nil {
 		return "", err
 	}

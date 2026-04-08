@@ -14,6 +14,7 @@ const (
 	ScreenCreateWorktree        Screen = "create-worktree"
 	ScreenWorkspaceGitHubPicker Screen = "workspace-github-picker"
 	ScreenDeleteConfirm         Screen = "delete-confirm"
+	ScreenOptions               Screen = "options"
 )
 
 const NewBranchOption = "+ create new branch"
@@ -29,8 +30,11 @@ type WorktreeItem struct {
 
 type State struct {
 	Screen            Screen
+	Title             string
+	Hint              string
 	Worktrees         []WorktreeItem
 	Actions           []string
+	Options           []string
 	Branches          []string
 	Repositories      []string
 	DeleteModes       []string
@@ -106,6 +110,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case tea.KeyEnter:
 			switch m.Screen {
+			case ScreenOptions:
+				if len(m.Options) > 0 {
+					m.SelectedAction = m.Options[clampIndex(m.Cursor, len(m.Options))]
+					return m, tea.Quit
+				}
+				return m, nil
 			case ScreenWorkspaceGitHubPicker:
 				if len(m.Repositories) > 0 {
 					m.SelectedPath = m.Repositories[clampIndex(m.Cursor, len(m.Repositories))]
@@ -145,7 +155,7 @@ func (m Model) View() string {
 	switch m.Screen {
 	case ScreenWorktrees:
 		if len(m.Worktrees) == 0 {
-			return titleStyle.Render("baker") + "\n\n" + metaStyle.Render("No workspaces or worktrees") + "\n\n" + metaStyle.Render("Keys: a add workspace, q quit")
+			return metaStyle.Render("No workspaces or worktrees") + "\n\n" + metaStyle.Render("Keys: a add workspace, q quit")
 		}
 		var lines []string
 		cursor := clampIndex(m.Cursor, len(m.Worktrees))
@@ -164,13 +174,15 @@ func (m Model) View() string {
 			}
 			lines = append(lines, label)
 		}
-		return titleStyle.Render("baker") + "\n\n" + strings.Join(lines, "\n") + "\n\n" + metaStyle.Render("Keys: enter open, a add workspace, c create worktree, d delete worktree, q quit")
+		return strings.Join(lines, "\n") + "\n\n" + metaStyle.Render("Keys: enter open, a add workspace, c create worktree, d delete worktree, q quit")
+	case ScreenOptions:
+		return renderScreen(withDefaultTitle(m.Title, "Select option"), renderList(m.Options, m.Cursor, "No options"), m.Hint)
 	case ScreenWorkspaceGitHubPicker:
-		return titleStyle.Render("select repository") + "\n\n" + renderList(m.Repositories, m.Cursor, "No repositories")
+		return renderScreen(withDefaultTitle(m.Title, "Select repository"), renderList(m.Repositories, m.Cursor, "No repositories"), m.Hint)
 	case ScreenCreateWorktree:
-		return titleStyle.Render("select branch") + "\n\n" + renderList(m.Branches, m.Cursor, "No branches")
+		return renderScreen(withDefaultTitle(m.Title, "Select branch"), renderList(m.Branches, m.Cursor, "No branches"), m.Hint)
 	case ScreenDeleteConfirm:
-		return titleStyle.Render("delete mode") + "\n\n" + renderList(m.DeleteModes, m.Cursor, "No delete modes")
+		return renderScreen(withDefaultTitle(m.Title, "Delete worktree"), renderList(m.DeleteModes, m.Cursor, "No delete modes"), m.Hint)
 	default:
 		return ""
 	}
@@ -180,6 +192,8 @@ func (m Model) listLength() int {
 	switch m.Screen {
 	case ScreenWorktrees:
 		return len(m.Worktrees)
+	case ScreenOptions:
+		return len(m.Options)
 	case ScreenWorkspaceGitHubPicker:
 		return len(m.Repositories)
 	case ScreenCreateWorktree:
@@ -196,6 +210,21 @@ func (m Model) currentWorktreeItem() (WorktreeItem, bool) {
 		return WorktreeItem{}, false
 	}
 	return m.Worktrees[clampIndex(m.Cursor, len(m.Worktrees))], true
+}
+
+func renderScreen(title, body, hint string) string {
+	parts := []string{titleStyle.Render(title), body}
+	if hint != "" {
+		parts = append(parts, metaStyle.Render(hint))
+	}
+	return strings.Join(parts, "\n\n")
+}
+
+func withDefaultTitle(title, fallback string) string {
+	if title != "" {
+		return title
+	}
+	return fallback
 }
 
 func renderList(items []string, cursor int, empty string) string {
