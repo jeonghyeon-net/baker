@@ -22,14 +22,14 @@ type Client struct {
 	Runner Runner
 }
 
-const bareHeadsRefSpec = "+refs/heads/*:refs/heads/*"
+const remoteTrackingRefSpec = "+refs/heads/*:refs/remotes/origin/*"
 
 func (c Client) CloneBare(ctx context.Context, remoteURL, repoPath string) error {
 	if _, err := c.runner().Run(ctx, "git", "clone", "--bare", remoteURL, repoPath); err != nil {
 		return err
 	}
 
-	_, err := c.runner().Run(ctx, "git", "--git-dir", repoPath, "config", "remote.origin.fetch", bareHeadsRefSpec)
+	_, err := c.runner().Run(ctx, "git", "--git-dir", repoPath, "config", "remote.origin.fetch", remoteTrackingRefSpec)
 	return err
 }
 
@@ -44,7 +44,7 @@ func (c Client) FetchAll(ctx context.Context, repoPath string) error {
 		remoteName = "origin"
 	}
 
-	_, err = c.runner().Run(ctx, "git", "--git-dir", repoPath, "fetch", "--prune", "--force", remoteName, bareHeadsRefSpec)
+	_, err = c.runner().Run(ctx, "git", "--git-dir", repoPath, "fetch", "--prune", "--force", remoteName)
 	return err
 }
 
@@ -74,12 +74,25 @@ func (c Client) ListBranches(ctx context.Context, repoPath string) ([]domain.Bra
 		remoteName = "origin"
 	}
 
-	refs, err := c.runner().Run(ctx, "git", "--git-dir", repoPath, "for-each-ref", "--format=%(refname:short)\tremote\t"+remoteName, "refs/heads")
+	refs, err := c.runner().Run(ctx, "git", "--git-dir", repoPath, "for-each-ref", "--format=%(refname:lstrip=3)\tremote\t"+remoteName, "refs/remotes/"+remoteName)
 	if err != nil {
 		return nil, err
 	}
 
-	return ParseBranches(refs.Stdout)
+	branches, err := ParseBranches(refs.Stdout)
+	if err != nil {
+		return nil, err
+	}
+
+	filtered := branches[:0]
+	for _, branch := range branches {
+		if branch.Name == "HEAD" {
+			continue
+		}
+		filtered = append(filtered, branch)
+	}
+
+	return filtered, nil
 }
 
 func (c Client) ListWorktrees(ctx context.Context, repoPath string) ([]domain.Worktree, error) {

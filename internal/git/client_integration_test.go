@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/jeonghyeon-net/baker/internal/domain"
@@ -34,6 +35,7 @@ func TestClientIntegrationCloneBareFetchAllListBranches(t *testing.T) {
 	runGit(t, remotePath, "symbolic-ref", "HEAD", "refs/heads/main")
 
 	localBarePath := filepath.Join(tempDir, "local.git")
+	mainWorktreePath := filepath.Join(tempDir, "worktrees", "main")
 	client := Client{Runner: defaultRunner{}}
 
 	if err := client.CloneBare(ctx, remotePath, localBarePath); err != nil {
@@ -51,20 +53,36 @@ func TestClientIntegrationCloneBareFetchAllListBranches(t *testing.T) {
 
 	assertBranchNames(t, branches, "main")
 
+	initialMainSHA := gitRevParse(t, localBarePath, "refs/remotes/origin/main")
+
+	if err := client.AddExistingBranchWorktree(ctx, localBarePath, "main", mainWorktreePath); err != nil {
+		t.Fatalf("AddExistingBranchWorktree returned error: %v", err)
+	}
+
 	seedFeaturePath := filepath.Join(tempDir, "seed-feature")
 	runGit(t, tempDir, "clone", remotePath, seedFeaturePath)
 	runGit(t, seedFeaturePath, "config", "user.name", "Baker Test")
 	runGit(t, seedFeaturePath, "config", "user.email", "baker-test@example.com")
+
+	updatedReadmePath := filepath.Join(seedFeaturePath, "README.md")
+	appendFile(t, updatedReadmePath, "updated from seed-feature\n")
+	runGit(t, seedFeaturePath, "commit", "-am", "advance main")
+	runGit(t, seedFeaturePath, "push", "origin", "main")
 	runGit(t, seedFeaturePath, "checkout", "-b", "feature/refresh", "origin/main")
 	runGit(t, seedFeaturePath, "push", "--set-upstream", "origin", "feature/refresh")
 
 	if err := client.FetchAll(ctx, localBarePath); err != nil {
-		t.Fatalf("FetchAll after remote branch creation returned error: %v", err)
+		t.Fatalf("FetchAll after remote updates returned error: %v", err)
+	}
+
+	updatedMainSHA := gitRevParse(t, localBarePath, "refs/remotes/origin/main")
+	if updatedMainSHA == initialMainSHA {
+		t.Fatalf("expected origin/main to advance, but SHA stayed %q", updatedMainSHA)
 	}
 
 	branches, err = client.ListBranches(ctx, localBarePath)
 	if err != nil {
-		t.Fatalf("ListBranches after remote branch creation returned error: %v", err)
+		t.Fatalf("ListBranches after remote updates returned error: %v", err)
 	}
 
 	assertBranchNames(t, branches, "feature/refresh", "main")
@@ -143,6 +161,32 @@ func assertBranchNames(t *testing.T, branches []domain.BranchRef, expectedNames 
 			t.Fatalf("expected branch %d remote name %q, got %q", i, "origin", branch.RemoteName)
 		}
 	}
+}
+
+func appendFile(t *testing.T, path, content string) {
+	t.Helper()
+
+	file, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatalf("open %s for append: %v", path, err)
+	}
+	defer file.Close()
+
+	if _, err := file.WriteString(content); err != nil {
+		t.Fatalf("append %s: %v", path, err)
+	}
+}
+
+func gitRevParse(t *testing.T, gitDir, ref string) string {
+	t.Helper()
+
+	cmd := exec.Command("git", "--git-dir", gitDir, "rev-parse", ref)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git rev-parse %s failed: %v\n%s", ref, err, output)
+	}
+
+	return strings.TrimSpace(string(output))
 }
 
 func runGit(t *testing.T, dir string, args ...string) {
