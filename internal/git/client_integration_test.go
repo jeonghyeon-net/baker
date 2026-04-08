@@ -6,6 +6,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"testing"
+
+	"github.com/jeonghyeon-net/baker/internal/domain"
 )
 
 func TestClientIntegrationCloneBareFetchAllListBranches(t *testing.T) {
@@ -47,20 +49,25 @@ func TestClientIntegrationCloneBareFetchAllListBranches(t *testing.T) {
 		t.Fatalf("ListBranches returned error: %v", err)
 	}
 
-	if len(branches) != 1 {
-		t.Fatalf("expected 1 branch, got %d: %#v", len(branches), branches)
+	assertBranchNames(t, branches, "main")
+
+	seedFeaturePath := filepath.Join(tempDir, "seed-feature")
+	runGit(t, tempDir, "clone", remotePath, seedFeaturePath)
+	runGit(t, seedFeaturePath, "config", "user.name", "Baker Test")
+	runGit(t, seedFeaturePath, "config", "user.email", "baker-test@example.com")
+	runGit(t, seedFeaturePath, "checkout", "-b", "feature/refresh", "origin/main")
+	runGit(t, seedFeaturePath, "push", "--set-upstream", "origin", "feature/refresh")
+
+	if err := client.FetchAll(ctx, localBarePath); err != nil {
+		t.Fatalf("FetchAll after remote branch creation returned error: %v", err)
 	}
 
-	branch := branches[0]
-	if branch.Name != "main" {
-		t.Fatalf("expected branch name %q, got %q", "main", branch.Name)
+	branches, err = client.ListBranches(ctx, localBarePath)
+	if err != nil {
+		t.Fatalf("ListBranches after remote branch creation returned error: %v", err)
 	}
-	if branch.Source != "remote" {
-		t.Fatalf("expected branch source %q, got %q", "remote", branch.Source)
-	}
-	if branch.RemoteName != "origin" {
-		t.Fatalf("expected remote name %q, got %q", "origin", branch.RemoteName)
-	}
+
+	assertBranchNames(t, branches, "feature/refresh", "main")
 }
 
 func TestClientIntegrationAddNewBranchWorktreeAndPushBranch(t *testing.T) {
@@ -107,6 +114,35 @@ func TestClientIntegrationAddNewBranchWorktreeAndPushBranch(t *testing.T) {
 	}
 
 	runGit(t, remotePath, "show-ref", "--verify", "refs/heads/feature/login")
+
+	if err := client.DeleteRemoteBranch(ctx, localBarePath, "feature/login"); err != nil {
+		t.Fatalf("DeleteRemoteBranch returned error: %v", err)
+	}
+
+	if err := runGitExpectError(remotePath, "show-ref", "--verify", "refs/heads/feature/login"); err == nil {
+		t.Fatal("expected feature/login to be deleted from remote")
+	}
+}
+
+func assertBranchNames(t *testing.T, branches []domain.BranchRef, expectedNames ...string) {
+	t.Helper()
+
+	if len(branches) != len(expectedNames) {
+		t.Fatalf("expected %d branches, got %d: %#v", len(expectedNames), len(branches), branches)
+	}
+
+	for i, expected := range expectedNames {
+		branch := branches[i]
+		if branch.Name != expected {
+			t.Fatalf("expected branch %d name %q, got %q", i, expected, branch.Name)
+		}
+		if branch.Source != "remote" {
+			t.Fatalf("expected branch %d source %q, got %q", i, "remote", branch.Source)
+		}
+		if branch.RemoteName != "origin" {
+			t.Fatalf("expected branch %d remote name %q, got %q", i, "origin", branch.RemoteName)
+		}
+	}
 }
 
 func runGit(t *testing.T, dir string, args ...string) {
@@ -118,4 +154,11 @@ func runGit(t *testing.T, dir string, args ...string) {
 	if err != nil {
 		t.Fatalf("git %v failed: %v\n%s", args, err, output)
 	}
+}
+
+func runGitExpectError(dir string, args ...string) error {
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	_, err := cmd.CombinedOutput()
+	return err
 }

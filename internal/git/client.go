@@ -22,13 +22,29 @@ type Client struct {
 	Runner Runner
 }
 
+const bareHeadsRefSpec = "+refs/heads/*:refs/heads/*"
+
 func (c Client) CloneBare(ctx context.Context, remoteURL, repoPath string) error {
-	_, err := c.runner().Run(ctx, "git", "clone", "--bare", remoteURL, repoPath)
+	if _, err := c.runner().Run(ctx, "git", "clone", "--bare", remoteURL, repoPath); err != nil {
+		return err
+	}
+
+	_, err := c.runner().Run(ctx, "git", "--git-dir", repoPath, "config", "remote.origin.fetch", bareHeadsRefSpec)
 	return err
 }
 
 func (c Client) FetchAll(ctx context.Context, repoPath string) error {
-	_, err := c.runner().Run(ctx, "git", "--git-dir", repoPath, "fetch", "--all", "--prune")
+	remotes, err := c.runner().Run(ctx, "git", "--git-dir", repoPath, "remote")
+	if err != nil {
+		return err
+	}
+
+	remoteName := firstRemoteName(remotes.Stdout)
+	if remoteName == "" {
+		remoteName = "origin"
+	}
+
+	_, err = c.runner().Run(ctx, "git", "--git-dir", repoPath, "fetch", "--prune", "--force", remoteName, bareHeadsRefSpec)
 	return err
 }
 
@@ -96,8 +112,8 @@ func (c Client) DeleteLocalBranch(ctx context.Context, repoPath, branch string, 
 	return err
 }
 
-func (c Client) DeleteRemoteBranch(ctx context.Context, worktreePath, branch string) error {
-	_, err := c.runner().Run(ctx, "git", "-C", worktreePath, "push", "origin", "--delete", branch)
+func (c Client) DeleteRemoteBranch(ctx context.Context, repoPath, branch string) error {
+	_, err := c.runner().Run(ctx, "git", "--git-dir", repoPath, "push", "origin", "--delete", branch)
 	return err
 }
 
