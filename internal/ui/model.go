@@ -52,6 +52,11 @@ type Model struct {
 	State
 }
 
+const (
+	defaultPanelWidth = 88
+	minPanelWidth     = 56
+)
+
 var (
 	appStyle   = lipgloss.NewStyle().Padding(1, 2)
 	panelStyle = lipgloss.NewStyle().
@@ -185,7 +190,7 @@ func (m Model) View() string {
 	title, subtitle, footer := m.screenChrome()
 	body := m.screenBody(title, footer)
 
-	content := panelStyle.Render(renderPanel(title, subtitle, body, footer))
+	content := renderFrame(renderPanel(title, subtitle, body, footer), m.Width)
 	if m.Width > 0 {
 		content = lipgloss.PlaceHorizontal(m.Width, lipgloss.Center, content)
 	}
@@ -376,7 +381,7 @@ func (m Model) bodyHeight(title, footer string) int {
 	if m.Height <= 0 {
 		return 0
 	}
-	reserved := 4 // app padding + border/panel breathing room approximation
+	reserved := 8
 	if title != "" {
 		reserved += 2
 	}
@@ -388,6 +393,36 @@ func (m Model) bodyHeight(title, footer string) int {
 		return 3
 	}
 	return available
+}
+
+func renderFrame(content string, windowWidth int) string {
+	return panelStyle.Width(panelWidth(windowWidth)).Render(content)
+}
+
+func panelWidth(windowWidth int) int {
+	if windowWidth <= 0 {
+		return defaultPanelWidth
+	}
+
+	available := windowWidth - 6
+	if available < minPanelWidth {
+		if available < 32 {
+			return 32
+		}
+		return available
+	}
+	if available > defaultPanelWidth {
+		return defaultPanelWidth
+	}
+	return available
+}
+
+func panelInnerWidth(windowWidth int) int {
+	width := panelWidth(windowWidth) - 6
+	if width < 20 {
+		return 20
+	}
+	return width
 }
 
 func renderScrollableLines(lines []string, cursor, maxBodyLines int) string {

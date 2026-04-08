@@ -201,7 +201,7 @@ func addWorkspace(ctx context.Context, paths config.Paths, registry config.Regis
 	case "github":
 		ownersCtx, cancel := context.WithTimeout(ctx, githubRepositoryListTimeout)
 		defer cancel()
-		owners, err := withTransientStatusValue("Loading GitHub owners...", func() ([]string, error) {
+		owners, err := ui.RunStatusValue("Loading", "GitHub owners", "Loading GitHub owners...", func() ([]string, error) {
 			return githubClient.ListOwners(ownersCtx)
 		})
 		if err != nil {
@@ -222,7 +222,7 @@ func addWorkspace(ctx context.Context, paths config.Paths, registry config.Regis
 
 		reposCtx, cancelRepos := context.WithTimeout(ctx, githubRepositoryListTimeout)
 		defer cancelRepos()
-		repos, err := withTransientStatusValue("Loading repositories for "+selectedOwner+"...", func() ([]domain.GitHubRepo, error) {
+		repos, err := ui.RunStatusValue("Loading", "GitHub repositories", "Loading repositories for "+selectedOwner+"...", func() ([]domain.GitHubRepo, error) {
 			return githubClient.ListRepositoriesForOwner(reposCtx, selectedOwner)
 		})
 		if err != nil {
@@ -290,7 +290,7 @@ func createWorktreeForWorkspace(ctx context.Context, paths config.Paths, registr
 
 	syncCtx, cancel := context.WithTimeout(ctx, workspaceSyncTimeout)
 	defer cancel()
-	if err := withTransientStatus("Loading branches for workspace "+workspaceName+"...", func() error {
+	if err := ui.RunStatus("Loading", "Workspace branches", "Loading branches for workspace "+workspaceName+"...", func() error {
 		return workspaceService.Sync(syncCtx, workspace)
 	}); err != nil {
 		if errors.Is(syncCtx.Err(), context.DeadlineExceeded) {
@@ -545,18 +545,6 @@ func runDeleteModeSelection() (string, error) {
 	return selected.SelectedAction, nil
 }
 
-func withTransientStatus(message string, fn func() error) error {
-	fmt.Fprint(os.Stderr, "\r\033[2K"+message)
-	defer fmt.Fprint(os.Stderr, "\r\033[2K")
-	return fn()
-}
-
-func withTransientStatusValue[T any](message string, fn func() (T, error)) (T, error) {
-	fmt.Fprint(os.Stderr, "\r\033[2K"+message)
-	defer fmt.Fprint(os.Stderr, "\r\033[2K")
-	return fn()
-}
-
 func findWorkspace(registry config.Registry, workspaceName string) (domain.Workspace, bool) {
 	for _, workspace := range registry.Workspaces {
 		if workspace.Name == workspaceName {
@@ -606,7 +594,7 @@ func loadWorktreeItems(ctx context.Context, paths config.Paths, registry config.
 			})
 		}
 
-		sort.Slice(items, func(i, j int) bool { return items[i].Label < items[j].Label })
+		sort.Slice(items, func(i, j int) bool { return items[i].WorktreeName < items[j].WorktreeName })
 		groups = append(groups, workspaceItems{name: workspace.Name, items: items})
 	}
 
@@ -616,23 +604,19 @@ func loadWorktreeItems(ctx context.Context, paths config.Paths, registry config.
 	for _, group := range groups {
 		worktrees = append(worktrees, ui.WorktreeItem{Label: "▾ " + group.name, WorkspaceName: group.name})
 		for i, item := range group.items {
-			item.Label = worktreeLabel(item.WorktreeName, item.BranchName, i == len(group.items)-1)
+			item.Label = worktreeLabel(item.WorktreeName, i == len(group.items)-1)
 			worktrees = append(worktrees, item)
 		}
 	}
 	return worktrees, nil
 }
 
-func worktreeLabel(worktreeName, branchName string, last bool) string {
+func worktreeLabel(worktreeName string, last bool) string {
 	connector := "├─"
 	if last {
 		connector = "└─"
 	}
-	label := "  " + connector + " " + worktreeName
-	if branchName != "" && branchName != worktreeName {
-		label += " · " + branchName
-	}
-	return label
+	return "  " + connector + " " + worktreeName
 }
 
 func managedWorkspaceRoot(worktreesRoot, workspaceName string) (string, bool) {

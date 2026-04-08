@@ -12,6 +12,7 @@ type textInputModel struct {
 	value       string
 	submitted   bool
 	placeholder string
+	width       int
 	height      int
 }
 
@@ -35,11 +36,9 @@ func (m textInputModel) Init() tea.Cmd { return textinput.Blink }
 func (m textInputModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
+		m.width = msg.Width
 		m.height = msg.Height
-		m.input.Width = msg.Width - 4
-		if m.input.Width < 20 {
-			m.input.Width = 20
-		}
+		m.input.Width = panelInnerWidth(msg.Width)
 		return m, nil
 	case tea.KeyMsg:
 		switch msg.Type {
@@ -59,7 +58,7 @@ func (m textInputModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m textInputModel) View() string {
 	body := m.input.View()
-	content := panelStyle.Render(renderPanel(withDefaultTitle(m.title, "Input"), "Text input", body, withDefaultHint(m.hint, "enter submit • esc cancel")))
+	content := renderFrame(renderPanel(withDefaultTitle(m.title, "Input"), "Text input", body, withDefaultHint(m.hint, "enter submit • esc cancel")), m.width)
 	return appStyle.Render(content)
 }
 
