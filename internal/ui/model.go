@@ -200,7 +200,7 @@ func (m Model) View() string {
 func (m Model) screenChrome() (string, string, string) {
 	switch m.Screen {
 	case ScreenWorktrees:
-		return "Baker", m.currentSelectionSummary(), "↑↓/j/k 이동 • enter 열기 • a 워크스페이스 추가 • c 워크트리 생성 • d 삭제 • esc 종료"
+		return "Baker", m.currentSelectionSummary(), m.worktreeScreenHint()
 	case ScreenOptions:
 		return withDefaultTitle(m.Title, "항목 선택"), "작업 선택", withDefaultHint(m.Hint, "↑↓/j/k 이동 • enter 선택 • esc 취소")
 	case ScreenWorkspaceGitHubPicker:
@@ -297,7 +297,7 @@ func renderPanel(title, subtitle, body, footer string) string {
 func (m Model) currentSelectionSummary() string {
 	item, ok := m.currentWorktreeItem()
 	if !ok {
-		return "트리"
+		return "현재 선택 없음"
 	}
 	if item.Selectable {
 		name := item.WorktreeName
@@ -305,14 +305,28 @@ func (m Model) currentSelectionSummary() string {
 			name = strings.TrimSpace(strings.TrimLeft(item.Label, "├└─ "))
 		}
 		if shouldShowBranchDetail(item.WorktreeName, item.BranchName) {
-			return fmt.Sprintf("%s • %s", name, item.BranchName)
+			return fmt.Sprintf("현재 선택: %s · %s", name, item.BranchName)
 		}
-		return name
+		return fmt.Sprintf("현재 선택: %s", name)
 	}
 	if item.WorkspaceName != "" {
-		return item.WorkspaceName
+		return fmt.Sprintf("현재 선택: %s", item.WorkspaceName)
 	}
-	return "트리"
+	return "현재 선택 없음"
+}
+
+func (m Model) worktreeScreenHint() string {
+	item, ok := m.currentWorktreeItem()
+	if !ok {
+		return "a 워크스페이스 추가 • esc 종료"
+	}
+	if item.Selectable {
+		return fmt.Sprintf("enter 열기 • c %s에 워크트리 생성 • d 현재 워크트리 삭제 • esc 종료", item.WorkspaceName)
+	}
+	if item.WorkspaceName != "" {
+		return fmt.Sprintf("a 워크스페이스 추가 • c %s에 워크트리 생성 • d %s 삭제 • esc 종료", item.WorkspaceName, item.WorkspaceName)
+	}
+	return "a 워크스페이스 추가 • esc 종료"
 }
 
 func shouldShowBranchDetail(worktreeName, branchName string) bool {
