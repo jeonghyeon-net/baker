@@ -429,6 +429,7 @@ The first implementation must include:
 - worktree creation from an existing branch
 - worktree creation from a new branch plus push to origin
 - interactive worktree deletion with multiple deletion modes
+- a top-level plain-text `README` file instead of `README.md`
 
 ## 16. Deferred ideas
 
@@ -441,7 +442,15 @@ Possible future additions, explicitly deferred from MVP:
 - branch protection awareness
 - opening worktrees in an editor automatically
 
-## 17. Open implementation notes
+## 17. Documentation convention
+
+Project documentation for the repository root should follow an old-style plain-text convention:
+- use `README`
+- do not use `README.md`
+
+Markdown is still acceptable for design/spec documents under `docs/specs/`, but the top-level project readme should be plain text.
+
+## 18. Open implementation notes
 
 These are not unresolved product questions; they are implementation details to settle during planning:
 - exact TUI library choice in Go
