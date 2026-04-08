@@ -3,7 +3,9 @@ package exec
 import (
 	"bytes"
 	"context"
+	"fmt"
 	osExec "os/exec"
+	"strings"
 )
 
 type Result struct {
@@ -26,8 +28,18 @@ func (CommandRunner) Run(ctx context.Context, name string, args ...string) (Resu
 	cmd.Stderr = &stderr
 
 	err := cmd.Run()
-	return Result{
+	result := Result{
 		Stdout: stdout.String(),
 		Stderr: stderr.String(),
-	}, err
+	}
+	if err != nil {
+		output := strings.TrimSpace(result.Stderr)
+		if output == "" {
+			output = strings.TrimSpace(result.Stdout)
+		}
+		if output != "" {
+			return result, fmt.Errorf("%w: %s", err, output)
+		}
+	}
+	return result, err
 }
