@@ -122,6 +122,31 @@ func TestServiceCreateFromExistingBranchBlocksDuplicateActiveWorktree(t *testing
 	}
 }
 
+func TestServiceCreateFromExistingBranchRejectsEscapingWorktreeName(t *testing.T) {
+	gitClient := &fakeGitClient{}
+	service := Service{
+		Git: gitClient,
+		Paths: config.Paths{
+			WorktreesRoot: "/tmp/.pi/worktrees",
+		},
+	}
+	workspace := domain.Workspace{
+		Name:           "baker",
+		RepositoryPath: "/tmp/.pi/repositories/baker",
+	}
+
+	_, err := service.CreateFromExistingBranch(context.Background(), workspace, nil, "main", "../escape")
+	if err == nil {
+		t.Fatal("CreateFromExistingBranch() error = nil, want error")
+	}
+	if err.Error() != "invalid worktree name: \"../escape\"" {
+		t.Fatalf("CreateFromExistingBranch() error = %q, want %q", err.Error(), "invalid worktree name: \"../escape\"")
+	}
+	if gitClient.addExistingCalls != 0 {
+		t.Fatalf("AddExistingBranchWorktree() call count = %d, want %d", gitClient.addExistingCalls, 0)
+	}
+}
+
 func TestServiceCreateFromNewBranchReturnsPartialResultWhenPushFails(t *testing.T) {
 	pushErr := errors.New("push failed")
 	gitClient := &fakeGitClient{pushErr: pushErr}
@@ -153,8 +178,17 @@ func TestServiceCreateFromNewBranchReturnsPartialResultWhenPushFails(t *testing.
 
 func TestServiceDeleteRemovesWorktreeAndDeletesLocalAndRemoteBranch(t *testing.T) {
 	gitClient := &fakeGitClient{}
-	service := Service{Git: gitClient}
-	workspace := domain.Workspace{RepositoryPath: "/tmp/.pi/repositories/baker"}
+	service := Service{
+		Git: gitClient,
+		Paths: config.Paths{
+			RepositoriesRoot: "/tmp/.pi/repositories",
+			WorktreesRoot:    "/tmp/.pi/worktrees",
+		},
+	}
+	workspace := domain.Workspace{
+		Name:           "baker",
+		RepositoryPath: "/tmp/.pi/repositories/baker",
+	}
 	worktree := domain.Worktree{
 		Path:       "/tmp/.pi/worktrees/baker/feature-login",
 		BranchName: "feature/login",
@@ -196,5 +230,65 @@ func TestServiceDeleteRemovesWorktreeAndDeletesLocalAndRemoteBranch(t *testing.T
 	}
 	if gitClient.deleteRemoteBranch != "feature/login" {
 		t.Fatalf("DeleteRemoteBranch() branch = %q, want %q", gitClient.deleteRemoteBranch, "feature/login")
+	}
+}
+
+func TestServiceDeleteRejectsEscapingWorktreePath(t *testing.T) {
+	gitClient := &fakeGitClient{}
+	service := Service{
+		Git: gitClient,
+		Paths: config.Paths{
+			RepositoriesRoot: "/tmp/.pi/repositories",
+			WorktreesRoot:    "/tmp/.pi/worktrees",
+		},
+	}
+	workspace := domain.Workspace{
+		Name:           "baker",
+		RepositoryPath: "/tmp/.pi/repositories/baker",
+	}
+	worktree := domain.Worktree{
+		Path:       "/tmp/.pi/worktrees/other/feature-login",
+		BranchName: "feature/login",
+	}
+
+	err := service.Delete(context.Background(), workspace, worktree, DeleteModeAll, true)
+	if err == nil {
+		t.Fatal("Delete() error = nil, want error")
+	}
+	if err.Error() != "invalid worktree path: \"/tmp/.pi/worktrees/other/feature-login\"" {
+		t.Fatalf("Delete() error = %q, want %q", err.Error(), "invalid worktree path: \"/tmp/.pi/worktrees/other/feature-login\"")
+	}
+	if gitClient.removeCalls != 0 {
+		t.Fatalf("RemoveWorktree() call count = %d, want %d", gitClient.removeCalls, 0)
+	}
+}
+
+func TestServiceDeleteRejectsUnknownMode(t *testing.T) {
+	gitClient := &fakeGitClient{}
+	service := Service{
+		Git: gitClient,
+		Paths: config.Paths{
+			RepositoriesRoot: "/tmp/.pi/repositories",
+			WorktreesRoot:    "/tmp/.pi/worktrees",
+		},
+	}
+	workspace := domain.Workspace{
+		Name:           "baker",
+		RepositoryPath: "/tmp/.pi/repositories/baker",
+	}
+	worktree := domain.Worktree{
+		Path:       "/tmp/.pi/worktrees/baker/feature-login",
+		BranchName: "feature/login",
+	}
+
+	err := service.Delete(context.Background(), workspace, worktree, DeleteMode("unknown"), true)
+	if err == nil {
+		t.Fatal("Delete() error = nil, want error")
+	}
+	if err.Error() != "unknown delete mode: \"unknown\"" {
+		t.Fatalf("Delete() error = %q, want %q", err.Error(), "unknown delete mode: \"unknown\"")
+	}
+	if gitClient.removeCalls != 0 {
+		t.Fatalf("RemoveWorktree() call count = %d, want %d", gitClient.removeCalls, 0)
 	}
 }
