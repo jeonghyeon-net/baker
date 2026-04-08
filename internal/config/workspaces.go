@@ -5,12 +5,34 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"syscall"
 
 	"github.com/jeonghyeon-net/baker/internal/domain"
 )
 
 type Registry struct {
 	Workspaces []domain.Workspace `json:"workspaces"`
+}
+
+var syncTempFile = func(file *os.File) error {
+	return file.Sync()
+}
+
+var syncParentDirectory = func(dir string) error {
+	directory, err := os.Open(dir)
+	if err != nil {
+		return err
+	}
+	defer directory.Close()
+
+	if err := directory.Sync(); err != nil {
+		if errors.Is(err, syscall.EINVAL) || errors.Is(err, syscall.ENOTSUP) || errors.Is(err, syscall.ENOSYS) {
+			return nil
+		}
+		return err
+	}
+
+	return nil
 }
 
 func LoadRegistry(path string) (Registry, error) {
@@ -31,7 +53,8 @@ func LoadRegistry(path string) (Registry, error) {
 }
 
 func SaveRegistry(path string, registry Registry) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
 
@@ -41,7 +64,7 @@ func SaveRegistry(path string, registry Registry) error {
 	}
 	data = append(data, '\n')
 
-	tempFile, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".*.tmp")
+	tempFile, err := os.CreateTemp(dir, filepath.Base(path)+".*.tmp")
 	if err != nil {
 		return err
 	}
@@ -52,11 +75,18 @@ func SaveRegistry(path string, registry Registry) error {
 		tempFile.Close()
 		return err
 	}
+	if err := syncTempFile(tempFile); err != nil {
+		tempFile.Close()
+		return err
+	}
 	if err := tempFile.Close(); err != nil {
 		return err
 	}
 
 	if err := os.Rename(tempPath, path); err != nil {
+		return err
+	}
+	if err := syncParentDirectory(dir); err != nil {
 		return err
 	}
 
