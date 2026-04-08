@@ -262,7 +262,6 @@ func addWorkspace(ctx context.Context, paths config.Paths, registry config.Regis
 		if err := config.SaveRegistry(paths.RegistryFile, updatedRegistry); err != nil {
 			return err
 		}
-		fmt.Printf("워크스페이스를 추가했습니다: %s\n", strings.ReplaceAll(selectedRepo.NameWithOwner, "/", "-"))
 		return nil
 	case "url":
 		remoteURL, err := promptText("원격 저장소 URL")
@@ -288,7 +287,6 @@ func addWorkspace(ctx context.Context, paths config.Paths, registry config.Regis
 		if err := config.SaveRegistry(paths.RegistryFile, registry); err != nil {
 			return err
 		}
-		fmt.Printf("워크스페이스를 추가했습니다: %s\n", workspace.Name)
 		return nil
 	default:
 		return nil

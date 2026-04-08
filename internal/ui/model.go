@@ -156,6 +156,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.moveCursor(-m.pageStep()), nil
 		case tea.KeyPgDown:
 			return m.moveCursor(m.pageStep()), nil
+		case tea.KeyLeft:
+			if m.Screen == ScreenWorktrees {
+				return m.jumpWorkspace(-1), nil
+			}
+			return m, nil
+		case tea.KeyRight:
+			if m.Screen == ScreenWorktrees {
+				return m.jumpWorkspace(1), nil
+			}
+			return m, nil
 		case tea.KeyHome:
 			m.Cursor = 0
 			return m, nil
@@ -218,7 +228,7 @@ func (m Model) View() string {
 func (m Model) screenChrome() (string, string, string) {
 	switch m.Screen {
 	case ScreenWorktrees:
-		return "", "", m.worktreeScreenHint()
+		return "워크트리 목록", "워크스페이스별 트리", m.worktreeScreenHint()
 	case ScreenOptions:
 		return withDefaultTitle(m.Title, "항목 선택"), "작업 선택", withDefaultHint(m.Hint, "↑↓/j/k 이동 • enter 선택 • esc 취소")
 	case ScreenWorkspaceGitHubPicker:
@@ -315,11 +325,12 @@ func renderPanel(title, subtitle, body, footer string) string {
 func (m Model) worktreeScreenHint() string {
 	item, ok := m.currentWorktreeItem()
 	if !ok {
-		return renderActionPanel([]string{"a  워크스페이스 추가", "esc  종료"})
+		return renderActionPanel([]string{"a  워크스페이스 추가", "←→  워크스페이스 이동", "esc  종료"})
 	}
 	if item.Selectable {
 		return renderActionPanel([]string{
 			"enter  현재 워크트리 열기",
+			"←→  워크스페이스 이동",
 			fmt.Sprintf("c  %s에 새 워크트리 만들기", item.WorkspaceName),
 			"d  현재 워크트리 삭제",
 			"esc  종료",
@@ -328,12 +339,13 @@ func (m Model) worktreeScreenHint() string {
 	if item.WorkspaceName != "" {
 		return renderActionPanel([]string{
 			"a  새 워크스페이스 추가",
+			"←→  워크스페이스 이동",
 			fmt.Sprintf("c  %s에 새 워크트리 만들기", item.WorkspaceName),
 			fmt.Sprintf("d  %s 삭제", item.WorkspaceName),
 			"esc  종료",
 		})
 	}
-	return renderActionPanel([]string{"a  워크스페이스 추가", "esc  종료"})
+	return renderActionPanel([]string{"a  워크스페이스 추가", "←→  워크스페이스 이동", "esc  종료"})
 }
 
 func renderActionPanel(lines []string) string {
@@ -353,6 +365,30 @@ func shouldShowBranchDetail(worktreeName, branchName string) bool {
 	}
 	normalizedBranch := strings.NewReplacer("/", "-", `\\`, "-").Replace(branchName)
 	return normalizedBranch != worktreeName
+}
+
+func (m Model) jumpWorkspace(delta int) Model {
+	if m.Screen != ScreenWorktrees || len(m.Worktrees) == 0 || delta == 0 {
+		return m
+	}
+
+	if delta > 0 {
+		for i := m.Cursor + 1; i < len(m.Worktrees); i++ {
+			if !m.Worktrees[i].Selectable && m.Worktrees[i].WorkspaceName != "" {
+				m.Cursor = i
+				return m
+			}
+		}
+		return m
+	}
+
+	for i := m.Cursor - 1; i >= 0; i-- {
+		if !m.Worktrees[i].Selectable && m.Worktrees[i].WorkspaceName != "" {
+			m.Cursor = i
+			return m
+		}
+	}
+	return m
 }
 
 func (m Model) moveCursor(delta int) Model {
