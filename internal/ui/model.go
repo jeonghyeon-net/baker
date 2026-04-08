@@ -18,7 +18,7 @@ const (
 	ScreenOptions               Screen = "options"
 )
 
-const NewBranchOption = "+ create new branch"
+const NewBranchOption = "+ 새 브랜치 만들기"
 
 type WorktreeItem struct {
 	Label         string
@@ -53,8 +53,8 @@ type Model struct {
 }
 
 const (
-	defaultPanelWidth = 88
-	minPanelWidth     = 56
+	defaultPanelWidth = 112
+	minPanelWidth     = 72
 )
 
 var (
@@ -200,15 +200,15 @@ func (m Model) View() string {
 func (m Model) screenChrome() (string, string, string) {
 	switch m.Screen {
 	case ScreenWorktrees:
-		return "Baker", m.currentSelectionSummary(), "↑↓/j/k move • enter open • a add workspace • c create worktree • d delete • esc quit"
+		return "Baker", m.currentSelectionSummary(), "↑↓/j/k 이동 • enter 열기 • a 워크스페이스 추가 • c 워크트리 생성 • d 삭제 • esc 종료"
 	case ScreenOptions:
-		return withDefaultTitle(m.Title, "Select option"), "Action picker", withDefaultHint(m.Hint, "↑↓/j/k move • enter select • esc cancel")
+		return withDefaultTitle(m.Title, "항목 선택"), "작업 선택", withDefaultHint(m.Hint, "↑↓/j/k 이동 • enter 선택 • esc 취소")
 	case ScreenWorkspaceGitHubPicker:
-		return withDefaultTitle(m.Title, "Select repository"), "GitHub repository picker", withDefaultHint(m.Hint, "↑↓/j/k move • enter select • esc cancel")
+		return withDefaultTitle(m.Title, "저장소 선택"), "GitHub 저장소 선택", withDefaultHint(m.Hint, "↑↓/j/k 이동 • enter 선택 • esc 취소")
 	case ScreenCreateWorktree:
-		return withDefaultTitle(m.Title, "Select branch"), "Branch picker", withDefaultHint(m.Hint, "↑↓/j/k move • enter select • esc cancel")
+		return withDefaultTitle(m.Title, "브랜치 선택"), "브랜치 선택", withDefaultHint(m.Hint, "↑↓/j/k 이동 • enter 선택 • esc 취소")
 	case ScreenDeleteConfirm:
-		return withDefaultTitle(m.Title, "Delete worktree"), "Deletion mode", withDefaultHint(m.Hint, "↑↓/j/k move • enter select • esc cancel")
+		return withDefaultTitle(m.Title, "워크트리 삭제"), "삭제 방식 선택", withDefaultHint(m.Hint, "↑↓/j/k 이동 • enter 선택 • esc 취소")
 	default:
 		return "", "", ""
 	}
@@ -220,7 +220,7 @@ func (m Model) screenBody(title, footer string) string {
 	switch m.Screen {
 	case ScreenWorktrees:
 		if len(m.Worktrees) == 0 {
-			return metaStyle.Render("No workspaces yet. Press a to add one.")
+			return metaStyle.Render("아직 워크스페이스가 없습니다. a 키로 추가하세요.")
 		}
 		lines := make([]string, 0, len(m.Worktrees))
 		cursor := clampIndex(m.Cursor, len(m.Worktrees))
@@ -229,13 +229,13 @@ func (m Model) screenBody(title, footer string) string {
 		}
 		return renderScrollableLines(lines, cursor, bodyHeight)
 	case ScreenOptions:
-		return renderList(m.Options, m.Cursor, "No options", bodyHeight)
+		return renderList(m.Options, m.Cursor, "표시할 항목이 없습니다.", bodyHeight)
 	case ScreenWorkspaceGitHubPicker:
-		return renderList(m.Repositories, m.Cursor, "No repositories", bodyHeight)
+		return renderList(m.Repositories, m.Cursor, "표시할 저장소가 없습니다.", bodyHeight)
 	case ScreenCreateWorktree:
-		return renderList(m.Branches, m.Cursor, "No branches", bodyHeight)
+		return renderList(m.Branches, m.Cursor, "표시할 브랜치가 없습니다.", bodyHeight)
 	case ScreenDeleteConfirm:
-		return renderList(m.DeleteModes, m.Cursor, "No delete modes", bodyHeight)
+		return renderList(m.DeleteModes, m.Cursor, "표시할 삭제 방식이 없습니다.", bodyHeight)
 	default:
 		return ""
 	}
@@ -297,7 +297,7 @@ func renderPanel(title, subtitle, body, footer string) string {
 func (m Model) currentSelectionSummary() string {
 	item, ok := m.currentWorktreeItem()
 	if !ok {
-		return "tree"
+		return "트리"
 	}
 	if item.Selectable {
 		name := item.WorktreeName
@@ -312,7 +312,7 @@ func (m Model) currentSelectionSummary() string {
 	if item.WorkspaceName != "" {
 		return item.WorkspaceName
 	}
-	return "tree"
+	return "트리"
 }
 
 func shouldShowBranchDetail(worktreeName, branchName string) bool {

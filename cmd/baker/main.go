@@ -186,9 +186,14 @@ func runWorktreeSelection(worktrees []ui.WorktreeItem) (ui.Model, error) {
 
 	selected, ok := finalModel.(ui.Model)
 	if !ok {
-		return ui.Model{}, fmt.Errorf("unexpected ui model type %T", finalModel)
+		return ui.Model{}, fmt.Errorf("예상하지 못한 UI 모델 타입입니다: %T", finalModel)
 	}
 	return selected, nil
+}
+
+type optionChoice struct {
+	Label string
+	Value string
 }
 
 func addWorkspace(ctx context.Context, paths config.Paths, registry config.Registry, githubClient bakergithub.Client, workspaceService bakerworkspace.Service) error {
@@ -201,38 +206,38 @@ func addWorkspace(ctx context.Context, paths config.Paths, registry config.Regis
 	case "github":
 		ownersCtx, cancel := context.WithTimeout(ctx, githubRepositoryListTimeout)
 		defer cancel()
-		owners, err := ui.RunStatusValue("Loading", "GitHub owners", "Loading GitHub owners...", func() ([]string, error) {
+		owners, err := ui.RunStatusValue("불러오는 중", "GitHub 소유자 목록", "GitHub 소유자 목록을 불러오고 있습니다...", func() ([]string, error) {
 			return githubClient.ListOwners(ownersCtx)
 		})
 		if err != nil {
 			if errors.Is(ownersCtx.Err(), context.DeadlineExceeded) {
-				return fmt.Errorf("loading GitHub owners timed out after %s", githubRepositoryListTimeout)
+				return fmt.Errorf("GitHub 소유자 목록을 %s 안에 불러오지 못했습니다", githubRepositoryListTimeout)
 			}
 			return err
 		}
 		if len(owners) == 0 {
-			fmt.Println("표시할 GitHub owner가 없습니다.")
+			fmt.Println("표시할 GitHub 소유자가 없습니다.")
 			return nil
 		}
 
-		selectedOwner, err := runOptionSelection("Select owner", "enter select • esc cancel", owners)
+		selectedOwner, err := runOptionSelection("소유자 선택", "enter 선택 • esc 취소", owners)
 		if err != nil || selectedOwner == "" {
 			return err
 		}
 
 		reposCtx, cancelRepos := context.WithTimeout(ctx, githubRepositoryListTimeout)
 		defer cancelRepos()
-		repos, err := ui.RunStatusValue("Loading", "GitHub repositories", "Loading repositories for "+selectedOwner+"...", func() ([]domain.GitHubRepo, error) {
+		repos, err := ui.RunStatusValue("불러오는 중", "GitHub 저장소 목록", selectedOwner+" 저장소를 불러오고 있습니다...", func() ([]domain.GitHubRepo, error) {
 			return githubClient.ListRepositoriesForOwner(reposCtx, selectedOwner)
 		})
 		if err != nil {
 			if errors.Is(reposCtx.Err(), context.DeadlineExceeded) {
-				return fmt.Errorf("loading repositories for %s timed out after %s", selectedOwner, githubRepositoryListTimeout)
+				return fmt.Errorf("%s 저장소 목록을 %s 안에 불러오지 못했습니다", selectedOwner, githubRepositoryListTimeout)
 			}
 			return err
 		}
 		if len(repos) == 0 {
-			fmt.Printf("%s 에 표시할 repository가 없습니다.\n", selectedOwner)
+			fmt.Printf("%s에 표시할 저장소가 없습니다.\n", selectedOwner)
 			return nil
 		}
 
@@ -248,10 +253,10 @@ func addWorkspace(ctx context.Context, paths config.Paths, registry config.Regis
 		if err := config.SaveRegistry(paths.RegistryFile, updatedRegistry); err != nil {
 			return err
 		}
-		fmt.Printf("workspace added: %s\n", strings.ReplaceAll(selectedRepo.NameWithOwner, "/", "-"))
+		fmt.Printf("워크스페이스를 추가했습니다: %s\n", strings.ReplaceAll(selectedRepo.NameWithOwner, "/", "-"))
 		return nil
 	case "url":
-		remoteURL, err := promptText("remote url")
+		remoteURL, err := promptText("원격 저장소 URL")
 		if err != nil || remoteURL == "" {
 			return err
 		}
@@ -267,7 +272,7 @@ func addWorkspace(ctx context.Context, paths config.Paths, registry config.Regis
 		if err := config.SaveRegistry(paths.RegistryFile, registry); err != nil {
 			return err
 		}
-		fmt.Printf("workspace added: %s\n", workspace.Name)
+		fmt.Printf("워크스페이스를 추가했습니다: %s\n", workspace.Name)
 		return nil
 	default:
 		return nil
@@ -277,7 +282,7 @@ func addWorkspace(ctx context.Context, paths config.Paths, registry config.Regis
 func createWorktreeForWorkspace(ctx context.Context, paths config.Paths, registry config.Registry, workspaceName string, gitClient bakergit.Client, workspaceService bakerworkspace.Service, worktreeService bakerworktree.Service) (string, error) {
 	workspace, ok := findWorkspace(registry, workspaceName)
 	if !ok {
-		return "", fmt.Errorf("workspace not found: %s", workspaceName)
+		return "", fmt.Errorf("워크스페이스를 찾을 수 없습니다: %s", workspaceName)
 	}
 
 	mode, err := promptCreateMode()
@@ -290,11 +295,11 @@ func createWorktreeForWorkspace(ctx context.Context, paths config.Paths, registr
 
 	syncCtx, cancel := context.WithTimeout(ctx, workspaceSyncTimeout)
 	defer cancel()
-	if err := ui.RunStatus("Loading", "Workspace branches", "Loading branches for workspace "+workspaceName+"...", func() error {
+	if err := ui.RunStatus("불러오는 중", "브랜치 목록", workspaceName+" 브랜치를 불러오고 있습니다...", func() error {
 		return workspaceService.Sync(syncCtx, workspace)
 	}); err != nil {
 		if errors.Is(syncCtx.Err(), context.DeadlineExceeded) {
-			return "", fmt.Errorf("loading branches for workspace %s timed out after %s", workspaceName, workspaceSyncTimeout)
+			return "", fmt.Errorf("%s 브랜치를 %s 안에 불러오지 못했습니다", workspaceName, workspaceSyncTimeout)
 		}
 		return "", err
 	}
@@ -303,7 +308,7 @@ func createWorktreeForWorkspace(ctx context.Context, paths config.Paths, registr
 		return "", err
 	}
 	if len(branches) == 0 {
-		return "", fmt.Errorf("no branches available for workspace %s", workspaceName)
+		return "", fmt.Errorf("%s에 사용할 브랜치가 없습니다", workspaceName)
 	}
 
 	branchNames := make([]string, 0, len(branches))
@@ -327,7 +332,7 @@ func createWorktreeForWorkspace(ctx context.Context, paths config.Paths, registr
 	if err != nil || baseBranch == "" {
 		return "", err
 	}
-	newBranch, err := promptText("new branch name")
+	newBranch, err := promptText("새 브랜치 이름")
 	if err != nil {
 		return "", err
 	}
@@ -344,7 +349,7 @@ func createWorktreeForWorkspace(ctx context.Context, paths config.Paths, registr
 func deleteSelectedWorktree(ctx context.Context, paths config.Paths, registry config.Registry, selection ui.Model, worktreeService bakerworktree.Service) error {
 	workspace, ok := findWorkspace(registry, selection.SelectedWorkspace)
 	if !ok {
-		return fmt.Errorf("workspace not found: %s", selection.SelectedWorkspace)
+		return fmt.Errorf("워크스페이스를 찾을 수 없습니다: %s", selection.SelectedWorkspace)
 	}
 
 	mode, err := runDeleteModeSelection()
@@ -365,14 +370,14 @@ func deleteSelectedWorktree(ctx context.Context, paths config.Paths, registry co
 func deleteSelectedWorkspace(paths config.Paths, registry config.Registry, workspaceName string, workspaceService bakerworkspace.Service) error {
 	workspace, ok := findWorkspace(registry, workspaceName)
 	if !ok {
-		return fmt.Errorf("workspace not found: %s", workspaceName)
+		return fmt.Errorf("워크스페이스를 찾을 수 없습니다: %s", workspaceName)
 	}
 
-	choice, err := runOptionSelection("Delete workspace", "enter select • esc cancel", []string{"cancel", "delete workspace"})
+	choice, err := runMappedOptionSelection("워크스페이스 삭제", "enter 선택 • esc 취소", []optionChoice{{Label: "취소", Value: "cancel"}, {Label: "워크스페이스 삭제", Value: "delete-workspace"}})
 	if err != nil {
 		return err
 	}
-	if choice != "delete workspace" {
+	if choice != "delete-workspace" {
 		return nil
 	}
 	if err := workspaceService.Delete(workspace); err != nil {
@@ -395,14 +400,14 @@ func runRepositorySelection(repos []domain.GitHubRepo) (*domain.GitHubRepo, erro
 		names = append(names, repo.NameWithOwner)
 	}
 
-	finalModel, err := tea.NewProgram(ui.NewModel(ui.State{Screen: ui.ScreenWorkspaceGitHubPicker, Title: "Select repository", Hint: "enter select • esc cancel", Repositories: names}), tea.WithAltScreen()).Run()
+	finalModel, err := tea.NewProgram(ui.NewModel(ui.State{Screen: ui.ScreenWorkspaceGitHubPicker, Title: "저장소 선택", Hint: "enter 선택 • esc 취소", Repositories: names}), tea.WithAltScreen()).Run()
 	if err != nil {
 		return nil, err
 	}
 
 	selected, ok := finalModel.(ui.Model)
 	if !ok {
-		return nil, fmt.Errorf("unexpected ui model type %T", finalModel)
+		return nil, fmt.Errorf("예상하지 못한 UI 모델 타입입니다: %T", finalModel)
 	}
 	if selected.SelectedPath == "" {
 		return nil, nil
@@ -413,7 +418,7 @@ func runRepositorySelection(repos []domain.GitHubRepo) (*domain.GitHubRepo, erro
 			return &repo, nil
 		}
 	}
-	return nil, fmt.Errorf("selected repository not found: %s", selected.SelectedPath)
+	return nil, fmt.Errorf("선택한 저장소를 찾을 수 없습니다: %s", selected.SelectedPath)
 }
 
 func ensureWorkspace(ctx context.Context, paths config.Paths, registry config.Registry, workspaceService bakerworkspace.Service, repo domain.GitHubRepo) (domain.Workspace, config.Registry, error) {
@@ -476,13 +481,28 @@ func runOptionSelection(title, hint string, options []string) (string, error) {
 	}
 	selected, ok := finalModel.(ui.Model)
 	if !ok {
-		return "", fmt.Errorf("unexpected ui model type %T", finalModel)
+		return "", fmt.Errorf("예상하지 못한 UI 모델 타입입니다: %T", finalModel)
 	}
 	return selected.SelectedAction, nil
 }
 
+func runMappedOptionSelection(title, hint string, options []optionChoice) (string, error) {
+	labels := make([]string, 0, len(options))
+	byLabel := make(map[string]string, len(options))
+	for _, option := range options {
+		labels = append(labels, option.Label)
+		byLabel[option.Label] = option.Value
+	}
+
+	selectedLabel, err := runOptionSelection(title, hint, labels)
+	if err != nil || selectedLabel == "" {
+		return "", err
+	}
+	return byLabel[selectedLabel], nil
+}
+
 func promptAddWorkspaceMode() (string, error) {
-	choice, err := runOptionSelection("Add workspace", "enter select • esc cancel", []string{"github", "url"})
+	choice, err := runMappedOptionSelection("워크스페이스 추가", "enter 선택 • esc 취소", []optionChoice{{Label: "GitHub 저장소 선택", Value: "github"}, {Label: "원격 저장소 URL 입력", Value: "url"}})
 	if err != nil {
 		return "", err
 	}
@@ -500,7 +520,7 @@ func suggestedWorkspaceNameFromRemote(remoteURL string) string {
 }
 
 func promptCreateMode() (string, error) {
-	choice, err := runOptionSelection("Create worktree", "enter select • esc cancel", []string{"existing", "new"})
+	choice, err := runMappedOptionSelection("워크트리 생성", "enter 선택 • esc 취소", []optionChoice{{Label: "기존 브랜치로 생성", Value: "existing"}, {Label: "새 브랜치 만들어 생성", Value: "new"}})
 	if err != nil {
 		return "", err
 	}
@@ -508,7 +528,7 @@ func promptCreateMode() (string, error) {
 }
 
 func promptText(label string) (string, error) {
-	return ui.PromptText(label, "enter submit • esc cancel", label)
+	return ui.PromptText(label, "enter 입력 • esc 취소", label)
 }
 
 func runBranchSelection(branches []string, includeNewBranchOption bool) (string, error) {
@@ -518,13 +538,13 @@ func runBranchSelection(branches []string, includeNewBranchOption bool) (string,
 	}
 	items = append(items, branches...)
 
-	finalModel, err := tea.NewProgram(ui.NewModel(ui.State{Screen: ui.ScreenCreateWorktree, Title: "Select branch", Hint: "enter select • esc cancel", Branches: items}), tea.WithAltScreen()).Run()
+	finalModel, err := tea.NewProgram(ui.NewModel(ui.State{Screen: ui.ScreenCreateWorktree, Title: "브랜치 선택", Hint: "enter 선택 • esc 취소", Branches: items}), tea.WithAltScreen()).Run()
 	if err != nil {
 		return "", err
 	}
 	selected, ok := finalModel.(ui.Model)
 	if !ok {
-		return "", fmt.Errorf("unexpected ui model type %T", finalModel)
+		return "", fmt.Errorf("예상하지 못한 UI 모델 타입입니다: %T", finalModel)
 	}
 	if selected.SelectedAction == "create-new-branch" {
 		return ui.NewBranchOption, nil
@@ -533,16 +553,11 @@ func runBranchSelection(branches []string, includeNewBranchOption bool) (string,
 }
 
 func runDeleteModeSelection() (string, error) {
-	modes := []string{string(bakerworktree.DeleteModeLocalBranch), string(bakerworktree.DeleteModeAll)}
-	finalModel, err := tea.NewProgram(ui.NewModel(ui.State{Screen: ui.ScreenDeleteConfirm, Title: "Delete worktree", Hint: "enter select • esc cancel", DeleteModes: modes}), tea.WithAltScreen()).Run()
+	choice, err := runMappedOptionSelection("워크트리 삭제", "enter 선택 • esc 취소", []optionChoice{{Label: "워크트리 + 로컬 브랜치 삭제", Value: string(bakerworktree.DeleteModeLocalBranch)}, {Label: "워크트리 + 로컬 브랜치 + 원격 브랜치 삭제", Value: string(bakerworktree.DeleteModeAll)}})
 	if err != nil {
 		return "", err
 	}
-	selected, ok := finalModel.(ui.Model)
-	if !ok {
-		return "", fmt.Errorf("unexpected ui model type %T", finalModel)
-	}
-	return selected.SelectedAction, nil
+	return choice, nil
 }
 
 func findWorkspace(registry config.Registry, workspaceName string) (domain.Workspace, bool) {

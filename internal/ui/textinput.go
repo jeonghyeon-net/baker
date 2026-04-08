@@ -58,7 +58,7 @@ func (m textInputModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m textInputModel) View() string {
 	body := m.input.View()
-	content := renderFrame(renderPanel(withDefaultTitle(m.title, "Input"), "Text input", body, withDefaultHint(m.hint, "enter submit • esc cancel")), m.width)
+	content := renderFrame(renderPanel(withDefaultTitle(m.title, "입력"), "텍스트 입력", body, withDefaultHint(m.hint, "enter 입력 • esc 취소")), m.width)
 	return appStyle.Render(content)
 }
 
