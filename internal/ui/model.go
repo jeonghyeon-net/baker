@@ -342,7 +342,7 @@ func (m Model) worktreeScreenHint() string {
 func renderActionPanel(lines []string) string {
 	rendered := make([]string, 0, len(lines))
 	for _, line := range lines {
-		rendered = append(rendered, pillStyle.Render(line))
+		rendered = append(rendered, metaStyle.Render(line))
 	}
 	return strings.Join(rendered, "\n")
 }
