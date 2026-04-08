@@ -221,7 +221,7 @@ func (m Model) View() string {
 func (m Model) screenChrome() (string, string, string) {
 	switch m.Screen {
 	case ScreenWorktrees:
-		return "Baker", m.currentSelectionSummary(), m.worktreeScreenHint()
+		return "", "", m.worktreeScreenHint()
 	case ScreenOptions:
 		return withDefaultTitle(m.Title, "항목 선택"), "작업 선택", withDefaultHint(m.Hint, "↑↓/j/k 이동 • enter 선택 • esc 취소")
 	case ScreenWorkspaceGitHubPicker:
@@ -313,27 +313,6 @@ func renderPanel(title, subtitle, body, footer string) string {
 		sections = append(sections, footer)
 	}
 	return strings.Join(sections, "\n\n")
-}
-
-func (m Model) currentSelectionSummary() string {
-	item, ok := m.currentWorktreeItem()
-	if !ok {
-		return "현재 선택 없음"
-	}
-	if item.Selectable {
-		name := item.WorktreeName
-		if name == "" {
-			name = strings.TrimSpace(strings.TrimLeft(item.Label, "├└─ "))
-		}
-		if shouldShowBranchDetail(item.WorktreeName, item.BranchName) {
-			return fmt.Sprintf("현재 선택: %s · %s", name, item.BranchName)
-		}
-		return fmt.Sprintf("현재 선택: %s", name)
-	}
-	if item.WorkspaceName != "" {
-		return fmt.Sprintf("현재 선택: %s", item.WorkspaceName)
-	}
-	return "현재 선택 없음"
 }
 
 func (m Model) worktreeScreenHint() string {
