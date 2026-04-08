@@ -33,41 +33,33 @@ func (c Client) FetchAll(ctx context.Context, repoPath string) error {
 }
 
 func (c Client) ListBranches(ctx context.Context, repoPath string) ([]domain.BranchRef, error) {
-	localRefs, err := c.runner().Run(ctx, "git", "--git-dir", repoPath, "for-each-ref", "--format=%(refname:short)\tlocal\torigin", "refs/heads")
-	if err != nil {
-		return nil, err
-	}
-
 	remotes, err := c.runner().Run(ctx, "git", "--git-dir", repoPath, "remote")
 	if err != nil {
 		return nil, err
 	}
 
-	outputs := []string{localRefs.Stdout}
-	for _, remote := range strings.Split(strings.TrimSpace(remotes.Stdout), "\n") {
-		remote = strings.TrimSpace(remote)
-		if remote == "" {
-			continue
-		}
-
-		remoteRefs, err := c.runner().Run(
-			ctx,
-			"git",
-			"--git-dir",
-			repoPath,
-			"for-each-ref",
-			"--exclude=refs/remotes/"+remote+"/HEAD",
-			"--format=%(refname:lstrip=3)\tremote\t"+remote,
-			"refs/remotes/"+remote,
-		)
-		if err != nil {
-			return nil, err
-		}
-
-		outputs = append(outputs, remoteRefs.Stdout)
+	remoteName := firstRemoteName(remotes.Stdout)
+	if remoteName == "" {
+		remoteName = "origin"
 	}
 
-	return ParseBranches(strings.Join(outputs, ""))
+	refs, err := c.runner().Run(ctx, "git", "--git-dir", repoPath, "for-each-ref", "--format=%(refname:short)\tremote\t"+remoteName, "refs/heads")
+	if err != nil {
+		return nil, err
+	}
+
+	return ParseBranches(refs.Stdout)
+}
+
+func firstRemoteName(output string) string {
+	for _, line := range strings.Split(strings.TrimSpace(output), "\n") {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			return line
+		}
+	}
+
+	return ""
 }
 
 func (c Client) runner() Runner {

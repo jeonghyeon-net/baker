@@ -47,8 +47,19 @@ func TestClientIntegrationCloneBareFetchAllListBranches(t *testing.T) {
 		t.Fatalf("ListBranches returned error: %v", err)
 	}
 
-	if len(branches) == 0 {
-		t.Fatalf("expected at least one branch, got %d", len(branches))
+	if len(branches) != 1 {
+		t.Fatalf("expected 1 branch, got %d: %#v", len(branches), branches)
+	}
+
+	branch := branches[0]
+	if branch.Name != "main" {
+		t.Fatalf("expected branch name %q, got %q", "main", branch.Name)
+	}
+	if branch.Source != "remote" {
+		t.Fatalf("expected branch source %q, got %q", "remote", branch.Source)
+	}
+	if branch.RemoteName != "origin" {
+		t.Fatalf("expected remote name %q, got %q", "origin", branch.RemoteName)
 	}
 }
 
