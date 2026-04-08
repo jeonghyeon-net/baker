@@ -20,6 +20,7 @@ const (
 
 type GitClient interface {
 	AddExistingBranchWorktree(ctx context.Context, repoPath, branch, worktreePath string) error
+	SetBranchUpstream(ctx context.Context, worktreePath, branch, remoteName string) error
 	AddNewBranchWorktree(ctx context.Context, repoPath, baseBranch, newBranch, worktreePath string) error
 	PushBranch(ctx context.Context, worktreePath, branch string) error
 	RemoveWorktree(ctx context.Context, repoPath, worktreePath string, force bool) error
@@ -50,6 +51,17 @@ func (s Service) CreateFromExistingBranch(ctx context.Context, workspace domain.
 	}
 	if err := s.Git.AddExistingBranchWorktree(ctx, workspace.RepositoryPath, branch, path); err != nil {
 		return CreateResult{}, err
+	}
+
+	remoteName := "origin"
+	for _, branchRef := range branches {
+		if branchRef.Name == branch && branchRef.RemoteName != "" {
+			remoteName = branchRef.RemoteName
+			break
+		}
+	}
+	if err := s.Git.SetBranchUpstream(ctx, path, branch, remoteName); err != nil {
+		return CreateResult{Path: path, Partial: true}, err
 	}
 
 	return CreateResult{Path: path}, nil

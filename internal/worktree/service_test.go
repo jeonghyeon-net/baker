@@ -16,6 +16,12 @@ type fakeGitClient struct {
 	addExistingCalls    int
 	addExistingErr      error
 
+	setUpstreamWorktreePath string
+	setUpstreamBranch       string
+	setUpstreamRemoteName   string
+	setUpstreamCalls        int
+	setUpstreamErr          error
+
 	addNewRepoPath string
 	addNewBase     string
 	addNewBranch   string
@@ -52,6 +58,14 @@ func (f *fakeGitClient) AddExistingBranchWorktree(ctx context.Context, repoPath,
 	f.addExistingPath = worktreePath
 	f.addExistingCalls++
 	return f.addExistingErr
+}
+
+func (f *fakeGitClient) SetBranchUpstream(ctx context.Context, worktreePath, branch, remoteName string) error {
+	f.setUpstreamWorktreePath = worktreePath
+	f.setUpstreamBranch = branch
+	f.setUpstreamRemoteName = remoteName
+	f.setUpstreamCalls++
+	return f.setUpstreamErr
 }
 
 func (f *fakeGitClient) AddNewBranchWorktree(ctx context.Context, repoPath, baseBranch, newBranch, worktreePath string) error {
@@ -144,6 +158,65 @@ func TestServiceCreateFromExistingBranchRejectsEscapingWorktreeName(t *testing.T
 	}
 	if gitClient.addExistingCalls != 0 {
 		t.Fatalf("AddExistingBranchWorktree() call count = %d, want %d", gitClient.addExistingCalls, 0)
+	}
+}
+
+func TestServiceCreateFromExistingBranchSetsRemoteUpstream(t *testing.T) {
+	gitClient := &fakeGitClient{}
+	service := Service{
+		Git: gitClient,
+		Paths: config.Paths{
+			WorktreesRoot: "/tmp/.pi/worktrees",
+		},
+	}
+	workspace := domain.Workspace{
+		Name:           "baker",
+		RepositoryPath: "/tmp/.pi/repositories/baker",
+	}
+	branches := []domain.BranchRef{{Name: "feature/login", RemoteName: "origin"}}
+
+	result, err := service.CreateFromExistingBranch(context.Background(), workspace, branches, "feature/login", "feature-login")
+	if err != nil {
+		t.Fatalf("CreateFromExistingBranch() error = %v", err)
+	}
+	if result != (CreateResult{Path: "/tmp/.pi/worktrees/baker/feature-login"}) {
+		t.Fatalf("CreateFromExistingBranch() result = %#v", result)
+	}
+	if gitClient.setUpstreamCalls != 1 {
+		t.Fatalf("SetBranchUpstream() call count = %d, want 1", gitClient.setUpstreamCalls)
+	}
+	if gitClient.setUpstreamWorktreePath != "/tmp/.pi/worktrees/baker/feature-login" {
+		t.Fatalf("SetBranchUpstream() worktreePath = %q", gitClient.setUpstreamWorktreePath)
+	}
+	if gitClient.setUpstreamBranch != "feature/login" {
+		t.Fatalf("SetBranchUpstream() branch = %q", gitClient.setUpstreamBranch)
+	}
+	if gitClient.setUpstreamRemoteName != "origin" {
+		t.Fatalf("SetBranchUpstream() remoteName = %q", gitClient.setUpstreamRemoteName)
+	}
+}
+
+func TestServiceCreateFromExistingBranchReturnsPartialResultWhenUpstreamSetupFails(t *testing.T) {
+	upstreamErr := errors.New("set upstream failed")
+	gitClient := &fakeGitClient{setUpstreamErr: upstreamErr}
+	service := Service{
+		Git: gitClient,
+		Paths: config.Paths{
+			WorktreesRoot: "/tmp/.pi/worktrees",
+		},
+	}
+	workspace := domain.Workspace{
+		Name:           "baker",
+		RepositoryPath: "/tmp/.pi/repositories/baker",
+	}
+	branches := []domain.BranchRef{{Name: "feature/login", RemoteName: "origin"}}
+
+	result, err := service.CreateFromExistingBranch(context.Background(), workspace, branches, "feature/login", "feature-login")
+	if !errors.Is(err, upstreamErr) {
+		t.Fatalf("CreateFromExistingBranch() error = %v, want %v", err, upstreamErr)
+	}
+	if result != (CreateResult{Path: "/tmp/.pi/worktrees/baker/feature-login", Partial: true}) {
+		t.Fatalf("CreateFromExistingBranch() result = %#v", result)
 	}
 }
 

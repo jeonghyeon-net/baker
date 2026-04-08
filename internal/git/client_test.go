@@ -103,6 +103,20 @@ func TestFetchAllFallsBackWhenFilterUnsupported(t *testing.T) {
 	assertCallArgs(t, runner.calls[2], "git", []string{"--git-dir", "/tmp/repo.git", "fetch", "--prune", "--force", "origin"})
 }
 
+func TestSetBranchUpstreamUsesRemoteTrackingRef(t *testing.T) {
+	runner := &fakeRunner{results: []fakeRunnerResult{{}}}
+	client := Client{Runner: runner}
+
+	if err := client.SetBranchUpstream(context.Background(), "/tmp/worktree", "feature/login", "origin"); err != nil {
+		t.Fatalf("SetBranchUpstream() error = %v", err)
+	}
+
+	if len(runner.calls) != 1 {
+		t.Fatalf("call count = %d, want 1", len(runner.calls))
+	}
+	assertCallArgs(t, runner.calls[0], "git", []string{"-C", "/tmp/worktree", "branch", "--set-upstream-to", "origin/feature/login", "feature/login"})
+}
+
 func assertCallArgs(t *testing.T, call fakeRunnerCall, expectedName string, expectedArgs []string) {
 	t.Helper()
 	if call.name != expectedName {

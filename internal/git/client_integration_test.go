@@ -58,6 +58,12 @@ func TestClientIntegrationCloneBareFetchAllListBranches(t *testing.T) {
 	if err := client.AddExistingBranchWorktree(ctx, localBarePath, "main", mainWorktreePath); err != nil {
 		t.Fatalf("AddExistingBranchWorktree returned error: %v", err)
 	}
+	if err := client.SetBranchUpstream(ctx, mainWorktreePath, "main", "origin"); err != nil {
+		t.Fatalf("SetBranchUpstream returned error: %v", err)
+	}
+	if got := gitRevParseWorktree(t, mainWorktreePath, "--abbrev-ref", "@{upstream}"); got != "origin/main" {
+		t.Fatalf("upstream = %q, want %q", got, "origin/main")
+	}
 
 	seedFeaturePath := filepath.Join(tempDir, "seed-feature")
 	runGit(t, tempDir, "clone", remotePath, seedFeaturePath)
@@ -175,6 +181,19 @@ func appendFile(t *testing.T, path, content string) {
 	if _, err := file.WriteString(content); err != nil {
 		t.Fatalf("append %s: %v", path, err)
 	}
+}
+
+func gitRevParseWorktree(t *testing.T, worktreePath string, args ...string) string {
+	t.Helper()
+
+	cmdArgs := append([]string{"-C", worktreePath, "rev-parse"}, args...)
+	cmd := exec.Command("git", cmdArgs...)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git rev-parse %v failed: %v\n%s", args, err, output)
+	}
+
+	return strings.TrimSpace(string(output))
 }
 
 func gitRevParse(t *testing.T, gitDir, ref string) string {

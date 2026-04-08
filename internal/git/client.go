@@ -79,6 +79,14 @@ func (c Client) AddExistingBranchWorktree(ctx context.Context, repoPath, branch,
 	return err
 }
 
+func (c Client) SetBranchUpstream(ctx context.Context, worktreePath, branch, remoteName string) error {
+	if remoteName == "" {
+		remoteName = "origin"
+	}
+	_, err := c.runner().Run(ctx, "git", "-C", worktreePath, "branch", "--set-upstream-to", remoteName+"/"+branch, branch)
+	return err
+}
+
 func (c Client) AddNewBranchWorktree(ctx context.Context, repoPath, baseBranch, newBranch, worktreePath string) error {
 	_, err := c.runner().Run(ctx, "git", "--git-dir", repoPath, "worktree", "add", "-b", newBranch, worktreePath, baseBranch)
 	return err

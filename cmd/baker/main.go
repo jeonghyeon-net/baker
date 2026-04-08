@@ -382,9 +382,9 @@ func createWorktreeForWorkspace(ctx context.Context, paths config.Paths, registr
 		})
 		if err != nil {
 			if errors.Is(createCtx.Err(), context.DeadlineExceeded) {
-				return "", fmt.Errorf("%s 워크트리를 %s 안에 만들지 못했습니다", selectedBranch, workspaceCreateTimeout)
+				return result.Path, fmt.Errorf("%s 워크트리를 %s 안에 만들지 못했습니다", selectedBranch, workspaceCreateTimeout)
 			}
-			return "", err
+			return result.Path, err
 		}
 		return result.Path, nil
 	}
@@ -456,9 +456,9 @@ func openPullRequestWorktree(ctx context.Context, registry config.Registry, work
 			})
 			if err != nil {
 				if errors.Is(createCtx.Err(), context.DeadlineExceeded) {
-					return "", fmt.Errorf("%s 워크트리를 %s 안에 만들지 못했습니다", branchName, workspaceCreateTimeout)
+					return result.Path, fmt.Errorf("%s 워크트리를 %s 안에 만들지 못했습니다", branchName, workspaceCreateTimeout)
 				}
-				return "", err
+				return result.Path, err
 			}
 			return result.Path, nil
 		}
