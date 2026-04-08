@@ -71,6 +71,8 @@ const (
 )
 
 var (
+	selectedBackground = lipgloss.Color("60")
+
 	appStyle = lipgloss.NewStyle().
 			Padding(1, 2)
 	panelStyle = lipgloss.NewStyle().
@@ -91,7 +93,7 @@ var (
 	selectedTextStyle = lipgloss.NewStyle().
 				Bold(true).
 				Foreground(lipgloss.Color("255")).
-				Background(lipgloss.Color("60"))
+				Background(selectedBackground)
 	selectedMetaStyle = lipgloss.NewStyle().
 				Foreground(lipgloss.Color("153"))
 	indicatorStyle = lipgloss.NewStyle().
@@ -99,6 +101,16 @@ var (
 			Foreground(lipgloss.Color("111"))
 	metaStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("245"))
+	pullRequestBadgeStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("110"))
+	approvedStatusStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("114"))
+	changesRequestedStatusStyle = lipgloss.NewStyle().
+					Foreground(lipgloss.Color("203"))
+	reviewRequiredStatusStyle = lipgloss.NewStyle().
+					Foreground(lipgloss.Color("221"))
+	draftStatusStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("146"))
 	pillStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("252")).
 			Background(lipgloss.Color("238")).
@@ -298,20 +310,37 @@ func (m Model) screenBody(title, footer string) string {
 
 func renderTreeLine(item WorktreeItem, selected bool) string {
 	indicator := metaStyle.Render("  ")
-	textStyle := worktreeStyle
-
-	if item.PullRequestLoading || (item.PullRequestNumber > 0 && item.Path == "") {
-		textStyle = metaStyle
-	} else if !item.Selectable {
-		textStyle = workspaceStyle
-	}
-
 	if selected {
 		indicator = indicatorStyle.Render("› ")
-		return indicator + selectedTextStyle.Render(item.Label)
 	}
 
-	return indicator + textStyle.Render(item.Label)
+	if isWorkspaceHeader(item) {
+		return indicator + renderPrimarySegment(workspaceStyle, item.Label, selected)
+	}
+
+	prefix := treePrefix(item.Label)
+	if item.PullRequestLoading {
+		return indicator + renderSecondarySegment(metaStyle, prefix, selected) + renderSecondarySegment(metaStyle, "PR 불러오는 중...", selected)
+	}
+	if item.PullRequestNumber > 0 && item.Path == "" {
+		line := indicator + renderSecondarySegment(metaStyle, prefix, selected) + renderSecondarySegment(metaStyle, fmt.Sprintf("PR #%d %s", item.PullRequestNumber, item.PullRequestTitle), selected)
+		if item.PullRequestStatus != "" {
+			line += renderBadgeSegment(pullRequestStatusStyle(item.PullRequestStatus), fmt.Sprintf("  [%s]", item.PullRequestStatus), selected)
+		}
+		return line
+	}
+	if item.Selectable {
+		line := indicator + renderSecondarySegment(metaStyle, prefix, selected) + renderPrimarySegment(worktreeStyle, displayWorktreeName(item, prefix), selected)
+		if item.PullRequestNumber > 0 {
+			line += renderBadgeSegment(pullRequestBadgeStyle, fmt.Sprintf("  [PR #%d]", item.PullRequestNumber), selected)
+			if item.PullRequestStatus != "" {
+				line += renderBadgeSegment(pullRequestStatusStyle(item.PullRequestStatus), fmt.Sprintf(" [%s]", item.PullRequestStatus), selected)
+			}
+		}
+		return line
+	}
+
+	return indicator + renderSecondarySegment(metaStyle, item.Label, selected)
 }
 
 func renderList(items []string, cursor int, empty string, maxBodyLines int) string {
@@ -331,6 +360,58 @@ func renderListLine(item string, selected bool) string {
 		return indicatorStyle.Render("› ") + selectedTextStyle.Render(item)
 	}
 	return metaStyle.Render("  ") + worktreeStyle.Render(item)
+}
+
+func renderPrimarySegment(style lipgloss.Style, text string, selected bool) string {
+	if selected {
+		return style.Copy().Bold(true).Foreground(lipgloss.Color("255")).Background(selectedBackground).Render(text)
+	}
+	return style.Render(text)
+}
+
+func renderSecondarySegment(style lipgloss.Style, text string, selected bool) string {
+	if selected {
+		return style.Copy().Bold(true).Background(selectedBackground).Render(text)
+	}
+	return style.Render(text)
+}
+
+func renderBadgeSegment(style lipgloss.Style, text string, selected bool) string {
+	if selected {
+		return style.Copy().Bold(true).Background(selectedBackground).Render(text)
+	}
+	return style.Render(text)
+}
+
+func displayWorktreeName(item WorktreeItem, prefix string) string {
+	if item.WorktreeName != "" {
+		return item.WorktreeName
+	}
+	return strings.TrimPrefix(item.Label, prefix)
+}
+
+func treePrefix(label string) string {
+	for _, prefix := range []string{"  ├─ ", "  └─ "} {
+		if strings.HasPrefix(label, prefix) {
+			return prefix
+		}
+	}
+	return ""
+}
+
+func pullRequestStatusStyle(status string) lipgloss.Style {
+	switch status {
+	case "승인":
+		return approvedStatusStyle
+	case "수정 요청":
+		return changesRequestedStatusStyle
+	case "리뷰 대기":
+		return reviewRequiredStatusStyle
+	case "초안":
+		return draftStatusStyle
+	default:
+		return metaStyle
+	}
 }
 
 func renderPanel(title, subtitle, body, footer string) string {
