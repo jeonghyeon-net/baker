@@ -42,7 +42,11 @@ func ParseWorktrees(output string) ([]domain.Worktree, error) {
 			continue
 		}
 
-		var worktree domain.Worktree
+		var (
+			worktree   domain.Worktree
+			isBare     bool
+			isDetached bool
+		)
 		for _, line := range strings.Split(block, "\n") {
 			switch {
 			case strings.HasPrefix(line, "worktree "):
@@ -51,10 +55,21 @@ func ParseWorktrees(output string) ([]domain.Worktree, error) {
 				worktree.HeadSHA = strings.TrimPrefix(line, "HEAD ")
 			case strings.HasPrefix(line, "branch refs/heads/"):
 				worktree.BranchName = strings.TrimPrefix(line, "branch refs/heads/")
+			case line == "bare":
+				isBare = true
+			case line == "detached":
+				isDetached = true
 			}
 		}
 
 		if worktree.BranchName == "" {
+			if isBare {
+				continue
+			}
+			if isDetached {
+				worktrees = append(worktrees, worktree)
+				continue
+			}
 			return nil, fmt.Errorf("worktree block missing branch name: %q", block)
 		}
 

@@ -27,18 +27,33 @@ func TestParseBranches(t *testing.T) {
 }
 
 func TestParseWorktrees(t *testing.T) {
-	output := "worktree /tmp/wt/main\nHEAD 0123456\nbranch refs/heads/main\n\n"
+	t.Run("branch worktree", func(t *testing.T) {
+		output := "worktree /tmp/wt/main\nHEAD 0123456\nbranch refs/heads/main\n\n"
 
-	worktrees, err := ParseWorktrees(output)
-	if err != nil {
-		t.Fatalf("ParseWorktrees returned error: %v", err)
-	}
+		worktrees, err := ParseWorktrees(output)
+		if err != nil {
+			t.Fatalf("ParseWorktrees returned error: %v", err)
+		}
 
-	if len(worktrees) != 1 {
-		t.Fatalf("expected 1 worktree, got %d", len(worktrees))
-	}
+		if len(worktrees) != 1 {
+			t.Fatalf("expected 1 worktree, got %d", len(worktrees))
+		}
 
-	if worktrees[0].BranchName != "main" {
-		t.Fatalf("expected branch name %q, got %q", "main", worktrees[0].BranchName)
-	}
+		if worktrees[0].BranchName != "main" {
+			t.Fatalf("expected branch name %q, got %q", "main", worktrees[0].BranchName)
+		}
+	})
+
+	t.Run("bare worktree does not error", func(t *testing.T) {
+		output := "worktree /tmp/wt/bare\nbare\n\n"
+
+		worktrees, err := ParseWorktrees(output)
+		if err != nil {
+			t.Fatalf("ParseWorktrees returned error for bare block: %v", err)
+		}
+
+		if len(worktrees) != 0 {
+			t.Fatalf("expected bare worktree block to be skipped, got %d worktrees", len(worktrees))
+		}
+	})
 }
