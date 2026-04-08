@@ -67,6 +67,25 @@ func TestServiceCreateFromRemoteURL(t *testing.T) {
 	}
 }
 
+func TestServiceCreateFromRemoteURLRejectsEscapingWorkspaceName(t *testing.T) {
+	gitClient := &fakeGitClient{}
+	service := Service{
+		Git:   gitClient,
+		Paths: config.DefaultPaths("/tmp"),
+	}
+
+	_, err := service.CreateFromRemoteURL(context.Background(), "git@github.com:jeonghyeon-net/baker.git", "../outside")
+	if err == nil {
+		t.Fatal("CreateFromRemoteURL() error = nil, want error")
+	}
+	if err.Error() != "invalid workspace name: \"../outside\"" {
+		t.Fatalf("CreateFromRemoteURL() error = %q, want %q", err.Error(), "invalid workspace name: \"../outside\"")
+	}
+	if gitClient.cloneBareCalls != 0 {
+		t.Fatalf("CloneBare() call count = %d, want %d", gitClient.cloneBareCalls, 0)
+	}
+}
+
 func TestServiceCreateFromGitHubRepoCopiesDefaultBranch(t *testing.T) {
 	gitClient := &fakeGitClient{}
 	service := Service{

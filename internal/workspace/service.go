@@ -21,6 +21,11 @@ type Service struct {
 }
 
 func (s Service) CreateFromRemoteURL(ctx context.Context, remoteURL, workspaceName string) (domain.Workspace, error) {
+	workspaceName, err := validateWorkspaceName(workspaceName)
+	if err != nil {
+		return domain.Workspace{}, err
+	}
+
 	owner, repo, err := parseGitHubSSHRemote(remoteURL)
 	if err != nil {
 		return domain.Workspace{}, err
@@ -54,6 +59,18 @@ func (s Service) CreateFromGitHubRepo(ctx context.Context, repo domain.GitHubRep
 
 func (s Service) Sync(ctx context.Context, workspace domain.Workspace) error {
 	return s.Git.FetchAll(ctx, workspace.RepositoryPath)
+}
+
+func validateWorkspaceName(workspaceName string) (string, error) {
+	if workspaceName == "" || workspaceName == "." || workspaceName == ".." {
+		return "", fmt.Errorf("invalid workspace name: %q", workspaceName)
+	}
+
+	if filepath.IsAbs(workspaceName) || strings.ContainsAny(workspaceName, `/\\`) {
+		return "", fmt.Errorf("invalid workspace name: %q", workspaceName)
+	}
+
+	return workspaceName, nil
 }
 
 func parseGitHubSSHRemote(remoteURL string) (owner, repo string, err error) {
