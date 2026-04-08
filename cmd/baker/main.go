@@ -598,7 +598,6 @@ func loadWorktreeItems(ctx context.Context, paths config.Paths, registry config.
 				continue
 			}
 			items = append(items, ui.WorktreeItem{
-				Label:         worktreeLabel(worktree.Path),
 				Path:          worktree.Path,
 				WorkspaceName: workspace.Name,
 				WorktreeName:  filepath.Base(worktree.Path),
@@ -615,14 +614,25 @@ func loadWorktreeItems(ctx context.Context, paths config.Paths, registry config.
 
 	var worktrees []ui.WorktreeItem
 	for _, group := range groups {
-		worktrees = append(worktrees, ui.WorktreeItem{Label: group.name, WorkspaceName: group.name})
-		worktrees = append(worktrees, group.items...)
+		worktrees = append(worktrees, ui.WorktreeItem{Label: "▾ " + group.name, WorkspaceName: group.name})
+		for i, item := range group.items {
+			item.Label = worktreeLabel(item.WorktreeName, item.BranchName, i == len(group.items)-1)
+			worktrees = append(worktrees, item)
+		}
 	}
 	return worktrees, nil
 }
 
-func worktreeLabel(path string) string {
-	return "  " + filepath.Base(path)
+func worktreeLabel(worktreeName, branchName string, last bool) string {
+	connector := "├─"
+	if last {
+		connector = "└─"
+	}
+	label := "  " + connector + " " + worktreeName
+	if branchName != "" && branchName != worktreeName {
+		label += " · " + branchName
+	}
+	return label
 }
 
 func managedWorkspaceRoot(worktreesRoot, workspaceName string) (string, bool) {

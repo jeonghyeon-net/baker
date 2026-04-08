@@ -53,11 +53,20 @@ type Model struct {
 }
 
 var (
-	workspaceStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("12"))
-	selectedStyle  = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("230")).Background(lipgloss.Color("62")).Padding(0, 1)
-	normalStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("252"))
-	metaStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
-	titleStyle     = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("14"))
+	appStyle   = lipgloss.NewStyle().Padding(1, 2)
+	panelStyle = lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color("63")).
+			Padding(1, 2)
+	titleStyle        = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("230"))
+	subtitleStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("110"))
+	workspaceStyle    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("81"))
+	worktreeStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("252"))
+	selectedTextStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("230"))
+	selectedMetaStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("153"))
+	indicatorStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("81")).Bold(true)
+	metaStyle         = lipgloss.NewStyle().Foreground(lipgloss.Color("244"))
+	pillStyle         = lipgloss.NewStyle().Foreground(lipgloss.Color("230")).Background(lipgloss.Color("63")).Padding(0, 1)
 )
 
 func NewModel(state State) Model {
@@ -79,6 +88,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case tea.KeyCtrlC, tea.KeyEsc:
 			return m, tea.Quit
 		case tea.KeyRunes:
+			switch msg.String() {
+			case "j":
+				return m.moveCursor(1), nil
+			case "k":
+				return m.moveCursor(-1), nil
+			}
 			if m.Screen == ScreenWorktrees {
 				switch msg.String() {
 				case "a":
@@ -108,14 +123,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 		case tea.KeyUp:
-			if m.Cursor > 0 {
-				m.Cursor--
-			}
+			return m.moveCursor(-1), nil
 		case tea.KeyDown:
-			limit := m.listLength()
-			if limit > 0 && m.Cursor < limit-1 {
-				m.Cursor++
+			return m.moveCursor(1), nil
+		case tea.KeyPgUp:
+			return m.moveCursor(-m.pageStep()), nil
+		case tea.KeyPgDown:
+			return m.moveCursor(m.pageStep()), nil
+		case tea.KeyHome:
+			m.Cursor = 0
+			return m, nil
+		case tea.KeyEnd:
+			if length := m.listLength(); length > 0 {
+				m.Cursor = length - 1
 			}
+			return m, nil
 		case tea.KeyEnter:
 			switch m.Screen {
 			case ScreenOptions:
@@ -160,39 +182,170 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) View() string {
+	title, subtitle, footer := m.screenChrome()
+	body := m.screenBody(title, footer)
+
+	content := panelStyle.Render(renderPanel(title, subtitle, body, footer))
+	if m.Width > 0 {
+		content = lipgloss.PlaceHorizontal(m.Width, lipgloss.Center, content)
+	}
+	return appStyle.Render(content)
+}
+
+func (m Model) screenChrome() (string, string, string) {
+	switch m.Screen {
+	case ScreenWorktrees:
+		return "Baker", m.currentSelectionSummary(), "↑↓/j/k move • enter open • a add workspace • c create worktree • d delete • esc quit"
+	case ScreenOptions:
+		return withDefaultTitle(m.Title, "Select option"), "Action picker", withDefaultHint(m.Hint, "↑↓/j/k move • enter select • esc cancel")
+	case ScreenWorkspaceGitHubPicker:
+		return withDefaultTitle(m.Title, "Select repository"), "GitHub repository picker", withDefaultHint(m.Hint, "↑↓/j/k move • enter select • esc cancel")
+	case ScreenCreateWorktree:
+		return withDefaultTitle(m.Title, "Select branch"), "Branch picker", withDefaultHint(m.Hint, "↑↓/j/k move • enter select • esc cancel")
+	case ScreenDeleteConfirm:
+		return withDefaultTitle(m.Title, "Delete worktree"), "Deletion mode", withDefaultHint(m.Hint, "↑↓/j/k move • enter select • esc cancel")
+	default:
+		return "", "", ""
+	}
+}
+
+func (m Model) screenBody(title, footer string) string {
+	bodyHeight := m.bodyHeight(title, footer)
+
 	switch m.Screen {
 	case ScreenWorktrees:
 		if len(m.Worktrees) == 0 {
-			return renderScreen("", metaStyle.Render("No workspaces or worktrees"), metaStyle.Render("a add workspace • esc quit"))
+			return metaStyle.Render("No workspaces yet. Press a to add one.")
 		}
-
 		lines := make([]string, 0, len(m.Worktrees))
 		cursor := clampIndex(m.Cursor, len(m.Worktrees))
 		for i, item := range m.Worktrees {
-			style := normalStyle
-			if !item.Selectable {
-				style = workspaceStyle
-			}
-			label := style.Render(item.Label)
-			if i == cursor {
-				label = selectedStyle.Render(item.Label)
-			}
-			lines = append(lines, label)
+			lines = append(lines, renderTreeLine(item, i == cursor))
 		}
-
-		body := renderScrollableLines(lines, cursor, m.bodyHeight("", "enter open • a add workspace • c create worktree • d delete selected • esc quit"))
-		return renderScreen("", body, metaStyle.Render("enter open • a add workspace • c create worktree • d delete selected • esc quit"))
+		return renderScrollableLines(lines, cursor, bodyHeight)
 	case ScreenOptions:
-		return renderScreen(withDefaultTitle(m.Title, "Select option"), renderList(m.Options, m.Cursor, "No options", m.bodyHeight(m.Title, m.Hint)), metaStyle.Render(withDefaultHint(m.Hint, "enter select • esc cancel")))
+		return renderList(m.Options, m.Cursor, "No options", bodyHeight)
 	case ScreenWorkspaceGitHubPicker:
-		return renderScreen(withDefaultTitle(m.Title, "Select repository"), renderList(m.Repositories, m.Cursor, "No repositories", m.bodyHeight(m.Title, m.Hint)), metaStyle.Render(withDefaultHint(m.Hint, "enter select • esc cancel")))
+		return renderList(m.Repositories, m.Cursor, "No repositories", bodyHeight)
 	case ScreenCreateWorktree:
-		return renderScreen(withDefaultTitle(m.Title, "Select branch"), renderList(m.Branches, m.Cursor, "No branches", m.bodyHeight(m.Title, m.Hint)), metaStyle.Render(withDefaultHint(m.Hint, "enter select • esc cancel")))
+		return renderList(m.Branches, m.Cursor, "No branches", bodyHeight)
 	case ScreenDeleteConfirm:
-		return renderScreen(withDefaultTitle(m.Title, "Delete worktree"), renderList(m.DeleteModes, m.Cursor, "No delete modes", m.bodyHeight(m.Title, m.Hint)), metaStyle.Render(withDefaultHint(m.Hint, "enter select • esc cancel")))
+		return renderList(m.DeleteModes, m.Cursor, "No delete modes", bodyHeight)
 	default:
 		return ""
 	}
+}
+
+func renderTreeLine(item WorktreeItem, selected bool) string {
+	indicator := metaStyle.Render("  ")
+	textStyle := worktreeStyle
+	meta := ""
+
+	if !item.Selectable {
+		textStyle = workspaceStyle
+		meta = "workspace"
+	} else if item.BranchName != "" {
+		meta = "branch " + item.BranchName
+	}
+
+	if selected {
+		indicator = indicatorStyle.Render("› ")
+		primary := selectedTextStyle.Render(item.Label)
+		if meta != "" {
+			return indicator + primary + selectedMetaStyle.Render("  ·  "+meta)
+		}
+		return indicator + primary
+	}
+
+	primary := textStyle.Render(item.Label)
+	if meta != "" {
+		return indicator + primary + metaStyle.Render("  ·  "+meta)
+	}
+	return indicator + primary
+}
+
+func renderList(items []string, cursor int, empty string, maxBodyLines int) string {
+	if len(items) == 0 {
+		return metaStyle.Render(empty)
+	}
+	cursor = clampIndex(cursor, len(items))
+	lines := make([]string, 0, len(items))
+	for i, item := range items {
+		lines = append(lines, renderListLine(item, i == cursor))
+	}
+	return renderScrollableLines(lines, cursor, maxBodyLines)
+}
+
+func renderListLine(item string, selected bool) string {
+	if selected {
+		return indicatorStyle.Render("› ") + selectedTextStyle.Render(item)
+	}
+	return metaStyle.Render("  ") + worktreeStyle.Render(item)
+}
+
+func renderPanel(title, subtitle, body, footer string) string {
+	sections := make([]string, 0, 4)
+	if title != "" {
+		header := titleStyle.Render(title)
+		if subtitle != "" {
+			header = lipgloss.JoinHorizontal(lipgloss.Center, header, "  ", subtitleStyle.Render(subtitle))
+		}
+		sections = append(sections, header)
+	}
+	if body != "" {
+		sections = append(sections, body)
+	}
+	if footer != "" {
+		sections = append(sections, pillStyle.Render(footer))
+	}
+	return strings.Join(sections, "\n\n")
+}
+
+func (m Model) currentSelectionSummary() string {
+	item, ok := m.currentWorktreeItem()
+	if !ok {
+		return "Workspace tree"
+	}
+	if item.Selectable {
+		name := item.WorktreeName
+		if name == "" {
+			name = strings.TrimSpace(strings.TrimLeft(item.Label, "├└─ "))
+		}
+		if item.BranchName != "" {
+			return fmt.Sprintf("worktree %s • branch %s", name, item.BranchName)
+		}
+		return fmt.Sprintf("worktree %s", name)
+	}
+	if item.WorkspaceName != "" {
+		return fmt.Sprintf("workspace %s", item.WorkspaceName)
+	}
+	return "Workspace tree"
+}
+
+func (m Model) moveCursor(delta int) Model {
+	if delta == 0 {
+		return m
+	}
+	length := m.listLength()
+	if length == 0 {
+		return m
+	}
+	m.Cursor += delta
+	if m.Cursor < 0 {
+		m.Cursor = 0
+	}
+	if m.Cursor >= length {
+		m.Cursor = length - 1
+	}
+	return m
+}
+
+func (m Model) pageStep() int {
+	bodyHeight := m.bodyHeight("", "") - 1
+	if bodyHeight < 5 {
+		return 5
+	}
+	return bodyHeight
 }
 
 func (m Model) listLength() int {
@@ -219,66 +372,22 @@ func (m Model) currentWorktreeItem() (WorktreeItem, bool) {
 	return m.Worktrees[clampIndex(m.Cursor, len(m.Worktrees))], true
 }
 
-func (m Model) bodyHeight(title, hint string) int {
+func (m Model) bodyHeight(title, footer string) int {
 	if m.Height <= 0 {
 		return 0
 	}
-
-	reserved := 0
+	reserved := 4 // app padding + border/panel breathing room approximation
 	if title != "" {
 		reserved += 2
 	}
-	if hint != "" {
+	if footer != "" {
 		reserved += 2
 	}
-	if m.Height-reserved < 1 {
-		return 1
+	available := m.Height - reserved
+	if available < 3 {
+		return 3
 	}
-	return m.Height - reserved
-}
-
-func renderScreen(title, body, hint string) string {
-	parts := make([]string, 0, 3)
-	if title != "" {
-		parts = append(parts, titleStyle.Render(title))
-	}
-	if body != "" {
-		parts = append(parts, body)
-	}
-	if hint != "" {
-		parts = append(parts, hint)
-	}
-	return strings.Join(parts, "\n\n")
-}
-
-func withDefaultTitle(title, fallback string) string {
-	if title != "" {
-		return title
-	}
-	return fallback
-}
-
-func withDefaultHint(hint, fallback string) string {
-	if hint != "" {
-		return hint
-	}
-	return fallback
-}
-
-func renderList(items []string, cursor int, empty string, maxBodyLines int) string {
-	if len(items) == 0 {
-		return metaStyle.Render(empty)
-	}
-	cursor = clampIndex(cursor, len(items))
-	lines := make([]string, 0, len(items))
-	for i, item := range items {
-		if i == cursor {
-			lines = append(lines, selectedStyle.Render(item))
-			continue
-		}
-		lines = append(lines, normalStyle.Render(item))
-	}
-	return renderScrollableLines(lines, cursor, maxBodyLines)
+	return available
 }
 
 func renderScrollableLines(lines []string, cursor, maxBodyLines int) string {
@@ -321,6 +430,20 @@ func visibleRange(length, cursor, size int) (int, int) {
 		start = 0
 	}
 	return start, end
+}
+
+func withDefaultTitle(title, fallback string) string {
+	if title != "" {
+		return title
+	}
+	return fallback
+}
+
+func withDefaultHint(hint, fallback string) string {
+	if hint != "" {
+		return hint
+	}
+	return fallback
 }
 
 func clampIndex(index int, length int) int {

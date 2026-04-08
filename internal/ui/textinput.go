@@ -59,7 +59,8 @@ func (m textInputModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m textInputModel) View() string {
 	body := m.input.View()
-	return renderScreen(withDefaultTitle(m.title, "Input"), body, metaStyle.Render(withDefaultHint(m.hint, "enter submit • esc cancel")))
+	content := panelStyle.Render(renderPanel(withDefaultTitle(m.title, "Input"), "Text input", body, withDefaultHint(m.hint, "enter submit • esc cancel")))
+	return appStyle.Render(content)
 }
 
 func PromptText(title, hint, placeholder string) (string, error) {

@@ -182,7 +182,7 @@ func TestListViewShowsWindowStatusWhenItemsOverflow(t *testing.T) {
 	if !strings.Contains(view, "8") || !strings.Contains(view, "9") {
 		t.Fatalf("view = %q", view)
 	}
-	if !strings.Contains(view, "8-10/10") {
+	if !strings.Contains(view, "8-9/10") {
 		t.Fatalf("view missing window status: %q", view)
 	}
 }
