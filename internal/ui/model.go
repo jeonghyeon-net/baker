@@ -244,27 +244,17 @@ func (m Model) screenBody(title, footer string) string {
 func renderTreeLine(item WorktreeItem, selected bool) string {
 	indicator := metaStyle.Render("  ")
 	textStyle := worktreeStyle
-	meta := ""
 
 	if !item.Selectable {
 		textStyle = workspaceStyle
-		meta = "workspace"
 	}
 
 	if selected {
 		indicator = indicatorStyle.Render("› ")
-		primary := selectedTextStyle.Render(item.Label)
-		if meta != "" {
-			return indicator + primary + selectedMetaStyle.Render("  ·  "+meta)
-		}
-		return indicator + primary
+		return indicator + selectedTextStyle.Render(item.Label)
 	}
 
-	primary := textStyle.Render(item.Label)
-	if meta != "" {
-		return indicator + primary + metaStyle.Render("  ·  "+meta)
-	}
-	return indicator + primary
+	return indicator + textStyle.Render(item.Label)
 }
 
 func renderList(items []string, cursor int, empty string, maxBodyLines int) string {
@@ -307,7 +297,7 @@ func renderPanel(title, subtitle, body, footer string) string {
 func (m Model) currentSelectionSummary() string {
 	item, ok := m.currentWorktreeItem()
 	if !ok {
-		return "Workspace tree"
+		return "tree"
 	}
 	if item.Selectable {
 		name := item.WorktreeName
@@ -315,14 +305,14 @@ func (m Model) currentSelectionSummary() string {
 			name = strings.TrimSpace(strings.TrimLeft(item.Label, "├└─ "))
 		}
 		if shouldShowBranchDetail(item.WorktreeName, item.BranchName) {
-			return fmt.Sprintf("worktree %s • %s", name, item.BranchName)
+			return fmt.Sprintf("%s • %s", name, item.BranchName)
 		}
-		return fmt.Sprintf("worktree %s", name)
+		return name
 	}
 	if item.WorkspaceName != "" {
-		return fmt.Sprintf("workspace %s", item.WorkspaceName)
+		return item.WorkspaceName
 	}
-	return "Workspace tree"
+	return "tree"
 }
 
 func shouldShowBranchDetail(worktreeName, branchName string) bool {
