@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"flag"
 	"fmt"
@@ -116,86 +117,173 @@ func runShellMode(ctx context.Context) (string, error) {
 	}
 
 	paths := config.DefaultPaths(home)
-	registry, err := config.LoadRegistry(paths.RegistryFile)
-	if err != nil {
-		return "", err
-	}
+	gitClient := bakergit.Client{}
+	workspaceService := bakerworkspace.Service{Git: gitClient, Paths: paths}
+	worktreeService := bakerworktree.Service{Git: gitClient, Paths: paths}
+	githubClient := bakergithub.Client{}
 
-	worktrees, err := loadWorktreeItems(paths, registry)
-	if err != nil {
-		return "", err
-	}
+	for {
+		registry, err := config.LoadRegistry(paths.RegistryFile)
+		if err != nil {
+			return "", err
+		}
 
-	selectedPath, action, err := runWorktreeSelection(worktrees)
-	if err != nil {
-		return "", err
+		worktrees, err := loadWorktreeItems(ctx, paths, registry, gitClient)
+		if err != nil {
+			return "", err
+		}
+
+		selection, err := runWorktreeSelection(worktrees)
+		if err != nil {
+			return "", err
+		}
+		if selection.SelectedPath != "" && selection.SelectedAction == "" {
+			return selection.SelectedPath, nil
+		}
+
+		switch selection.SelectedAction {
+		case "add-workspace":
+			if err := addWorkspace(ctx, paths, registry, githubClient, workspaceService); err != nil {
+				return "", err
+			}
+			continue
+		case "create-worktree":
+			path, err := createWorktreeForWorkspace(ctx, paths, registry, selection.SelectedWorkspace, gitClient, workspaceService, worktreeService)
+			if err != nil {
+				return "", err
+			}
+			if path != "" {
+				return path, nil
+			}
+			continue
+		case "delete-worktree":
+			if err := deleteSelectedWorktree(ctx, paths, registry, selection, worktreeService); err != nil {
+				return "", err
+			}
+			continue
+		default:
+			return "", nil
+		}
 	}
-	if selectedPath != "" {
-		return selectedPath, nil
-	}
-	if action == "create-workspace-github" {
-		return createInitialWorktree(ctx, paths, registry)
-	}
-	return "", nil
 }
 
-func runWorktreeSelection(worktrees []ui.WorktreeItem) (string, string, error) {
+func runWorktreeSelection(worktrees []ui.WorktreeItem) (ui.Model, error) {
 	finalModel, err := tea.NewProgram(ui.NewModel(ui.State{Screen: ui.ScreenWorktrees, Worktrees: worktrees})).Run()
 	if err != nil {
-		return "", "", err
+		return ui.Model{}, err
 	}
 
 	selected, ok := finalModel.(ui.Model)
 	if !ok {
-		return "", "", fmt.Errorf("unexpected ui model type %T", finalModel)
+		return ui.Model{}, fmt.Errorf("unexpected ui model type %T", finalModel)
 	}
-	return selected.SelectedPath, selected.SelectedAction, nil
+	return selected, nil
 }
 
-func createInitialWorktree(ctx context.Context, paths config.Paths, registry config.Registry) (string, error) {
-	githubClient := bakergithub.Client{}
+func addWorkspace(ctx context.Context, paths config.Paths, registry config.Registry, githubClient bakergithub.Client, workspaceService bakerworkspace.Service) error {
 	repos, err := githubClient.ListRepositories(ctx)
 	if err != nil {
-		return "", err
+		return err
 	}
 	if len(repos) == 0 {
-		return "", nil
+		fmt.Println("표시할 GitHub 저장소가 없습니다.")
+		return nil
 	}
 
 	selectedRepo, err := runRepositorySelection(repos)
 	if err != nil || selectedRepo == nil {
-		return "", err
+		return err
 	}
 
-	gitClient := bakergit.Client{}
-	workspaceService := bakerworkspace.Service{Git: gitClient, Paths: paths}
-	worktreeService := bakerworktree.Service{Git: gitClient, Paths: paths}
-
-	workspace, updatedRegistry, err := ensureWorkspace(ctx, paths, registry, workspaceService, *selectedRepo)
+	_, updatedRegistry, err := ensureWorkspace(ctx, paths, registry, workspaceService, *selectedRepo)
 	if err != nil {
-		return "", err
+		return err
 	}
 	if err := config.SaveRegistry(paths.RegistryFile, updatedRegistry); err != nil {
-		return "", err
+		return err
+	}
+	fmt.Printf("workspace added: %s\n", strings.ReplaceAll(selectedRepo.NameWithOwner, "/", "-"))
+	return nil
+}
+
+func createWorktreeForWorkspace(ctx context.Context, paths config.Paths, registry config.Registry, workspaceName string, gitClient bakergit.Client, workspaceService bakerworkspace.Service, worktreeService bakerworktree.Service) (string, error) {
+	workspace, ok := findWorkspace(registry, workspaceName)
+	if !ok {
+		return "", fmt.Errorf("workspace not found: %s", workspaceName)
 	}
 	if err := workspaceService.Sync(ctx, workspace); err != nil {
 		return "", err
 	}
-
 	branches, err := gitClient.ListBranches(ctx, workspace.RepositoryPath)
 	if err != nil {
 		return "", err
 	}
-	branchName := defaultBranchName(*selectedRepo, workspace, branches)
-	if branchName == "" {
-		return "", fmt.Errorf("no branches available for %s", selectedRepo.NameWithOwner)
+	if len(branches) == 0 {
+		return "", fmt.Errorf("no branches available for workspace %s", workspaceName)
 	}
 
-	result, err := worktreeService.CreateFromExistingBranch(ctx, workspace, branches, branchName, worktreeNameForBranch(branchName))
+	mode, err := promptCreateMode()
 	if err != nil {
 		return "", err
 	}
+	if mode == "" {
+		return "", nil
+	}
+
+	branchNames := make([]string, 0, len(branches))
+	for _, branch := range branches {
+		branchNames = append(branchNames, branch.Name)
+	}
+
+	if mode == "existing" {
+		selectedBranch, err := runBranchSelection(branchNames, false)
+		if err != nil || selectedBranch == "" {
+			return "", err
+		}
+		result, err := worktreeService.CreateFromExistingBranch(ctx, workspace, branches, selectedBranch, worktreeNameForBranch(selectedBranch))
+		if err != nil {
+			return "", err
+		}
+		return result.Path, nil
+	}
+
+	baseBranch, err := runBranchSelection(branchNames, false)
+	if err != nil || baseBranch == "" {
+		return "", err
+	}
+	newBranch, err := promptText("new branch name")
+	if err != nil {
+		return "", err
+	}
+	if newBranch == "" {
+		return "", nil
+	}
+	result, err := worktreeService.CreateFromNewBranch(ctx, workspace, baseBranch, newBranch, worktreeNameForBranch(newBranch))
+	if err != nil {
+		return result.Path, err
+	}
 	return result.Path, nil
+}
+
+func deleteSelectedWorktree(ctx context.Context, paths config.Paths, registry config.Registry, selection ui.Model, worktreeService bakerworktree.Service) error {
+	workspace, ok := findWorkspace(registry, selection.SelectedWorkspace)
+	if !ok {
+		return fmt.Errorf("workspace not found: %s", selection.SelectedWorkspace)
+	}
+
+	mode, err := runDeleteModeSelection()
+	if err != nil {
+		return err
+	}
+	if mode == "" {
+		return nil
+	}
+
+	worktree := domain.Worktree{
+		Path:       selection.SelectedPath,
+		BranchName: selection.SelectedBranch,
+	}
+	return worktreeService.Delete(ctx, workspace, worktree, bakerworktree.DeleteMode(mode), true)
 }
 
 func runRepositorySelection(repos []domain.GitHubRepo) (*domain.GitHubRepo, error) {
@@ -278,11 +366,86 @@ func defaultBranchName(repo domain.GitHubRepo, workspace domain.Workspace, branc
 	return ""
 }
 
+func promptCreateMode() (string, error) {
+	reader := bufio.NewReader(os.Stdin)
+	fmt.Println("create worktree")
+	fmt.Println("1. existing branch")
+	fmt.Println("2. new branch from base branch")
+	fmt.Println("q. cancel")
+	fmt.Print("> ")
+
+	input, err := reader.ReadString('\n')
+	if err != nil {
+		return "", err
+	}
+	switch strings.TrimSpace(input) {
+	case "1":
+		return "existing", nil
+	case "2":
+		return "new", nil
+	default:
+		return "", nil
+	}
+}
+
+func promptText(label string) (string, error) {
+	reader := bufio.NewReader(os.Stdin)
+	fmt.Printf("%s: ", label)
+	input, err := reader.ReadString('\n')
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(input), nil
+}
+
+func runBranchSelection(branches []string, includeNewBranchOption bool) (string, error) {
+	items := make([]string, 0, len(branches)+1)
+	if includeNewBranchOption {
+		items = append(items, ui.NewBranchOption)
+	}
+	items = append(items, branches...)
+
+	finalModel, err := tea.NewProgram(ui.NewModel(ui.State{Screen: ui.ScreenCreateWorktree, Branches: items})).Run()
+	if err != nil {
+		return "", err
+	}
+	selected, ok := finalModel.(ui.Model)
+	if !ok {
+		return "", fmt.Errorf("unexpected ui model type %T", finalModel)
+	}
+	if selected.SelectedAction == "create-new-branch" {
+		return ui.NewBranchOption, nil
+	}
+	return selected.SelectedBranch, nil
+}
+
+func runDeleteModeSelection() (string, error) {
+	modes := []string{string(bakerworktree.DeleteModeWorktreeOnly), string(bakerworktree.DeleteModeLocalBranch), string(bakerworktree.DeleteModeAll)}
+	finalModel, err := tea.NewProgram(ui.NewModel(ui.State{Screen: ui.ScreenDeleteConfirm, DeleteModes: modes})).Run()
+	if err != nil {
+		return "", err
+	}
+	selected, ok := finalModel.(ui.Model)
+	if !ok {
+		return "", fmt.Errorf("unexpected ui model type %T", finalModel)
+	}
+	return selected.SelectedAction, nil
+}
+
+func findWorkspace(registry config.Registry, workspaceName string) (domain.Workspace, bool) {
+	for _, workspace := range registry.Workspaces {
+		if workspace.Name == workspaceName {
+			return workspace, true
+		}
+	}
+	return domain.Workspace{}, false
+}
+
 func worktreeNameForBranch(branch string) string {
 	return strings.NewReplacer("/", "-", `\\`, "-").Replace(branch)
 }
 
-func loadWorktreeItems(paths config.Paths, registry config.Registry) ([]ui.WorktreeItem, error) {
+func loadWorktreeItems(ctx context.Context, paths config.Paths, registry config.Registry, gitClient bakergit.Client) ([]ui.WorktreeItem, error) {
 	type workspaceItems struct {
 		name  string
 		items []ui.WorktreeItem
@@ -294,26 +457,29 @@ func loadWorktreeItems(paths config.Paths, registry config.Registry) ([]ui.Workt
 		if !ok {
 			continue
 		}
-		entries, err := os.ReadDir(workspaceRoot)
+
+		gitWorktrees, err := gitClient.ListWorktrees(ctx, workspace.RepositoryPath)
 		if err != nil {
 			if os.IsNotExist(err) {
-				continue
+				gitWorktrees = nil
+			} else {
+				return nil, err
 			}
-			return nil, err
 		}
 
-		var items []ui.WorktreeItem
-		for _, entry := range entries {
-			if entry.IsDir() {
-				items = append(items, ui.WorktreeItem{
-					Label:      "  " + entry.Name(),
-					Path:       filepath.Join(workspaceRoot, entry.Name()),
-					Selectable: true,
-				})
+		items := make([]ui.WorktreeItem, 0, len(gitWorktrees)+1)
+		for _, worktree := range gitWorktrees {
+			if !strings.HasPrefix(filepath.Clean(worktree.Path), filepath.Clean(workspaceRoot)+string(filepath.Separator)) {
+				continue
 			}
-		}
-		if len(items) == 0 {
-			continue
+			items = append(items, ui.WorktreeItem{
+				Label:         worktreeLabel(worktree.Path),
+				Path:          worktree.Path,
+				WorkspaceName: workspace.Name,
+				WorktreeName:  filepath.Base(worktree.Path),
+				BranchName:    worktree.BranchName,
+				Selectable:    true,
+			})
 		}
 
 		sort.Slice(items, func(i, j int) bool { return items[i].Label < items[j].Label })
@@ -324,10 +490,14 @@ func loadWorktreeItems(paths config.Paths, registry config.Registry) ([]ui.Workt
 
 	var worktrees []ui.WorktreeItem
 	for _, group := range groups {
-		worktrees = append(worktrees, ui.WorktreeItem{Label: group.name, Selectable: false})
+		worktrees = append(worktrees, ui.WorktreeItem{Label: group.name, WorkspaceName: group.name})
 		worktrees = append(worktrees, group.items...)
 	}
 	return worktrees, nil
+}
+
+func worktreeLabel(path string) string {
+	return "  " + filepath.Base(path)
 }
 
 func managedWorkspaceRoot(worktreesRoot, workspaceName string) (string, bool) {
