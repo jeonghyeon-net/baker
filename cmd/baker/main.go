@@ -420,7 +420,7 @@ func runBranchSelection(branches []string, includeNewBranchOption bool) (string,
 }
 
 func runDeleteModeSelection() (string, error) {
-	modes := []string{string(bakerworktree.DeleteModeWorktreeOnly), string(bakerworktree.DeleteModeLocalBranch), string(bakerworktree.DeleteModeAll)}
+	modes := []string{string(bakerworktree.DeleteModeLocalBranch), string(bakerworktree.DeleteModeAll)}
 	finalModel, err := tea.NewProgram(ui.NewModel(ui.State{Screen: ui.ScreenDeleteConfirm, DeleteModes: modes})).Run()
 	if err != nil {
 		return "", err

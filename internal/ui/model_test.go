@@ -123,7 +123,7 @@ func TestEnterSelectsNewBranchActionInCreateScreen(t *testing.T) {
 }
 
 func TestEnterSelectsDeleteMode(t *testing.T) {
-	model := NewModel(State{Screen: ScreenDeleteConfirm, DeleteModes: []string{"worktree-only", "worktree-and-local-branch", "worktree-local-and-remote-branch"}, Cursor: 2})
+	model := NewModel(State{Screen: ScreenDeleteConfirm, DeleteModes: []string{"worktree-and-local-branch", "worktree-local-and-remote-branch"}, Cursor: 1})
 
 	next, _ := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	updated := next.(Model)
