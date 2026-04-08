@@ -384,6 +384,9 @@ func renderBadgeSegment(style lipgloss.Style, text string, selected bool) string
 }
 
 func displayWorktreeName(item WorktreeItem, prefix string) string {
+	if item.BranchName != "" {
+		return item.BranchName
+	}
 	if item.WorktreeName != "" {
 		return item.WorktreeName
 	}

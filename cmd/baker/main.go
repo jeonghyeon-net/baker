@@ -766,7 +766,7 @@ func loadWorktreeItems(ctx context.Context, paths config.Paths, registry config.
 			})
 		}
 
-		sort.Slice(items, func(i, j int) bool { return items[i].WorktreeName < items[j].WorktreeName })
+		sort.Slice(items, func(i, j int) bool { return worktreeSortKey(items[i]) < worktreeSortKey(items[j]) })
 		if workspace.Owner != "" && workspace.Repo != "" {
 			items = append(items, ui.WorktreeItem{WorkspaceName: workspace.Name, PullRequestLoading: true})
 		}
@@ -799,6 +799,13 @@ func relabelGroupItems(items []ui.WorktreeItem) []ui.WorktreeItem {
 		}
 	}
 	return relabeled
+}
+
+func worktreeSortKey(item ui.WorktreeItem) string {
+	if item.BranchName != "" {
+		return item.BranchName
+	}
+	return item.WorktreeName
 }
 
 func worktreeLabel(worktreeName string, last bool) string {
