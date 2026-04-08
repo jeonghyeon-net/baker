@@ -195,11 +195,15 @@ func runWorktreeSelection(ctx context.Context, worktrees []ui.WorktreeItem, regi
 	defer cancel()
 
 	for _, workspace := range registry.Workspaces {
+		if workspace.Owner == "" || workspace.Repo == "" {
+			continue
+		}
 		workspace := workspace
 		branchPaths := branchPathsForWorkspace(worktrees, workspace.Name)
 		go func() {
 			prs, err := githubClient.ListMyPullRequestsForRepository(loadCtx, workspace.Owner, workspace.Repo)
 			if err != nil {
+				program.Send(ui.WorkspacePullRequestsLoadedMsg{WorkspaceName: workspace.Name})
 				return
 			}
 			program.Send(ui.WorkspacePullRequestsLoadedMsg{WorkspaceName: workspace.Name, Items: buildPullRequestItems(workspace.Name, prs, branchPaths)})
@@ -723,6 +727,9 @@ func loadWorktreeItems(ctx context.Context, paths config.Paths, registry config.
 		}
 
 		sort.Slice(items, func(i, j int) bool { return items[i].WorktreeName < items[j].WorktreeName })
+		if workspace.Owner != "" && workspace.Repo != "" {
+			items = append(items, ui.WorktreeItem{WorkspaceName: workspace.Name, PullRequestLoading: true})
+		}
 		groups = append(groups, workspaceItems{name: workspace.Name, items: items})
 	}
 
@@ -731,12 +738,27 @@ func loadWorktreeItems(ctx context.Context, paths config.Paths, registry config.
 	var worktrees []ui.WorktreeItem
 	for _, group := range groups {
 		worktrees = append(worktrees, ui.WorktreeItem{Label: "▾ " + group.name, WorkspaceName: group.name})
-		for i, item := range group.items {
-			item.Label = worktreeLabel(item.WorktreeName, i == len(group.items)-1)
+		for _, item := range relabelGroupItems(group.items) {
 			worktrees = append(worktrees, item)
 		}
 	}
 	return worktrees, nil
+}
+
+func relabelGroupItems(items []ui.WorktreeItem) []ui.WorktreeItem {
+	relabeled := append([]ui.WorktreeItem{}, items...)
+	for i := range relabeled {
+		last := i == len(relabeled)-1
+		switch {
+		case relabeled[i].PullRequestLoading:
+			relabeled[i].Label = pullRequestLoadingLabel(last)
+		case relabeled[i].PullRequestNumber > 0 && relabeled[i].Path == "":
+			relabeled[i].Label = pullRequestLabel(relabeled[i].PullRequestNumber, relabeled[i].PullRequestTitle, last)
+		default:
+			relabeled[i].Label = worktreeLabel(relabeled[i].WorktreeName, last)
+		}
+	}
+	return relabeled
 }
 
 func worktreeLabel(worktreeName string, last bool) string {
@@ -745,6 +767,14 @@ func worktreeLabel(worktreeName string, last bool) string {
 		connector = "└─"
 	}
 	return "  " + connector + " " + worktreeName
+}
+
+func pullRequestLoadingLabel(last bool) string {
+	connector := "├─"
+	if last {
+		connector = "└─"
+	}
+	return "  " + connector + " PR 불러오는 중..."
 }
 
 func pullRequestLabel(number int, title string, last bool) string {

@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 )
 
 func TestAddShortcutSelectsAddWorkspaceAction(t *testing.T) {
@@ -236,7 +237,8 @@ func TestMergeWorkspacePullRequestsMarksExistingWorktreesAndAppendsUnmaterialize
 	items := []WorktreeItem{
 		{Label: "▾ baker", WorkspaceName: "baker"},
 		{Label: "  ├─ main", WorkspaceName: "baker", WorktreeName: "main", Path: "/tmp/baker/main", BranchName: "main", Selectable: true},
-		{Label: "  └─ feature-login", WorkspaceName: "baker", WorktreeName: "feature-login", Path: "/tmp/baker/feature-login", BranchName: "feature/login", Selectable: true},
+		{Label: "  ├─ feature-login", WorkspaceName: "baker", WorktreeName: "feature-login", Path: "/tmp/baker/feature-login", BranchName: "feature/login", Selectable: true},
+		{Label: "  └─ PR 불러오는 중...", WorkspaceName: "baker", PullRequestLoading: true},
 	}
 	prItems := []WorktreeItem{
 		{WorkspaceName: "baker", Path: "/tmp/baker/feature-login", BranchName: "feature/login", PullRequestNumber: 42, PullRequestTitle: "로그인 수정", Selectable: true},
@@ -252,6 +254,15 @@ func TestMergeWorkspacePullRequestsMarksExistingWorktreesAndAppendsUnmaterialize
 	}
 	if merged[3].PullRequestNumber != 77 || !strings.Contains(merged[3].Label, "PR #77") {
 		t.Fatalf("unmaterialized pr row = %#v", merged[3])
+	}
+}
+
+func TestRenderListLineKeepsSameWidthWhenSelected(t *testing.T) {
+	selected := renderListLine("feature-login", true)
+	unselected := renderListLine("feature-login", false)
+
+	if lipgloss.Width(selected) != lipgloss.Width(unselected) {
+		t.Fatalf("selected width = %d, unselected width = %d", lipgloss.Width(selected), lipgloss.Width(unselected))
 	}
 }
 

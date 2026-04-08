@@ -21,14 +21,15 @@ const (
 const NewBranchOption = "+ 새 브랜치 만들기"
 
 type WorktreeItem struct {
-	Label             string
-	Path              string
-	WorkspaceName     string
-	WorktreeName      string
-	BranchName        string
-	Selectable        bool
-	PullRequestNumber int
-	PullRequestTitle  string
+	Label              string
+	Path               string
+	WorkspaceName      string
+	WorktreeName       string
+	BranchName         string
+	Selectable         bool
+	PullRequestNumber  int
+	PullRequestTitle   string
+	PullRequestLoading bool
 }
 
 type WorktreesLoadedMsg struct {
@@ -89,8 +90,7 @@ var (
 	selectedTextStyle = lipgloss.NewStyle().
 				Bold(true).
 				Foreground(lipgloss.Color("255")).
-				Background(lipgloss.Color("60")).
-				Padding(0, 1)
+				Background(lipgloss.Color("60"))
 	selectedMetaStyle = lipgloss.NewStyle().
 				Foreground(lipgloss.Color("153"))
 	indicatorStyle = lipgloss.NewStyle().
@@ -159,7 +159,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 							m.SelectedBranch = item.BranchName
 							return m, tea.Quit
 						}
-						if !item.Selectable && item.WorkspaceName != "" {
+						if isWorkspaceHeader(item) {
 							m.SelectedAction = "delete-workspace"
 							m.SelectedWorkspace = item.WorkspaceName
 							return m, tea.Quit
@@ -299,7 +299,9 @@ func renderTreeLine(item WorktreeItem, selected bool) string {
 	indicator := metaStyle.Render("  ")
 	textStyle := worktreeStyle
 
-	if !item.Selectable {
+	if item.PullRequestLoading || (item.PullRequestNumber > 0 && item.Path == "") {
+		textStyle = metaStyle
+	} else if !item.Selectable {
 		textStyle = workspaceStyle
 	}
 
@@ -370,7 +372,15 @@ func (m Model) worktreeScreenHint() string {
 			"esc  종료",
 		})
 	}
-	if item.WorkspaceName != "" {
+	if item.PullRequestLoading {
+		return renderActionPanel([]string{
+			"a  새 워크스페이스 추가",
+			"← →  워크스페이스 이동",
+			fmt.Sprintf("c  %s에 새 워크트리 만들기", item.WorkspaceName),
+			"esc  종료",
+		})
+	}
+	if isWorkspaceHeader(item) {
 		return renderActionPanel([]string{
 			"a  새 워크스페이스 추가",
 			"← →  워크스페이스 이동",
@@ -398,11 +408,11 @@ func mergeWorkspacePullRequests(items []WorktreeItem, workspaceName string, prIt
 	start := -1
 	end := len(items)
 	for i, item := range items {
-		if !item.Selectable && item.WorkspaceName == workspaceName {
+		if isWorkspaceHeader(item) && item.WorkspaceName == workspaceName {
 			start = i
 			continue
 		}
-		if start >= 0 && !item.Selectable {
+		if start >= 0 && isWorkspaceHeader(item) {
 			end = i
 			break
 		}
@@ -414,7 +424,7 @@ func mergeWorkspacePullRequests(items []WorktreeItem, workspaceName string, prIt
 	merged := append([]WorktreeItem{}, items[:start+1]...)
 	workspaceItems := make([]WorktreeItem, 0, end-start-1+len(prItems))
 	for _, item := range items[start+1 : end] {
-		if item.PullRequestNumber > 0 && item.Path == "" {
+		if item.PullRequestLoading || (item.PullRequestNumber > 0 && item.Path == "") {
 			continue
 		}
 		workspaceItems = append(workspaceItems, item)
@@ -460,6 +470,10 @@ func relabelWorkspaceItems(items []WorktreeItem) []WorktreeItem {
 		if last {
 			connector = "└─"
 		}
+		if relabeled[i].PullRequestLoading {
+			relabeled[i].Label = "  " + connector + " PR 불러오는 중..."
+			continue
+		}
 		if relabeled[i].PullRequestNumber > 0 && relabeled[i].Path == "" {
 			relabeled[i].Label = fmt.Sprintf("  %s PR #%d %s", connector, relabeled[i].PullRequestNumber, relabeled[i].PullRequestTitle)
 			continue
@@ -473,6 +487,10 @@ func relabelWorkspaceItems(items []WorktreeItem) []WorktreeItem {
 		}
 	}
 	return relabeled
+}
+
+func isWorkspaceHeader(item WorktreeItem) bool {
+	return !item.Selectable && item.WorkspaceName != "" && !item.PullRequestLoading
 }
 
 func shouldShowBranchDetail(worktreeName, branchName string) bool {
@@ -493,7 +511,7 @@ func (m Model) jumpWorkspace(delta int) Model {
 
 	workspaceIndexes := make([]int, 0)
 	for i, item := range m.Worktrees {
-		if !item.Selectable && item.WorkspaceName != "" {
+		if isWorkspaceHeader(item) {
 			workspaceIndexes = append(workspaceIndexes, i)
 		}
 	}

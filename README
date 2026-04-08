@@ -67,9 +67,30 @@ Baker는 두 단계의 객체를 관리한다.
 
 - Go 1.26.0
 - git
-- GitHub 저장소 조회를 위한 gh(GitHub CLI) 로그인 상태
+- GitHub 저장소 조회와 PR 표시를 위한 gh(GitHub CLI) 로그인 상태
 - shell integration을 위한 zsh 또는 bash
 - 이 저장소의 toolchain 관리를 위한 mise(선택)
+
+
+설치
+----
+
+저장소 루트에서 아래 스크립트를 실행하면 `baker` 바이너리를 기본적으로 `~/.local/bin/baker`에 설치한다.
+
+   ./install.sh
+
+필요하면 설치 경로를 바꿀 수 있다.
+
+   BIN_DIR="$HOME/bin" ./install.sh
+
+또는
+
+   TARGET="$HOME/bin/baker" ./install.sh
+
+설치 후에는:
+- `baker`가 PATH에 잡혀 있어야 한다.
+- GitHub 저장소 목록과 PR 표시를 쓰려면 `gh auth login` 상태여야 한다.
+- 첫 실행에서 hook 설치 안내가 나오면 `source ~/.zshrc` 또는 `source ~/.bashrc`를 실행한다.
 
 
 개발 환경 준비
