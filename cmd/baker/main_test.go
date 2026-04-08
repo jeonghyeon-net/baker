@@ -1,10 +1,79 @@
 package main
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/jeonghyeon-net/baker/internal/domain"
 )
+
+func TestEnsureProcessOutsidePathMovesToHomeWhenInsideTarget(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	target := filepath.Join(t.TempDir(), "worktree")
+	if err := os.MkdirAll(target, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+
+	originalWD, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd() error = %v", err)
+	}
+	defer func() { _ = os.Chdir(originalWD) }()
+
+	if err := os.Chdir(target); err != nil {
+		t.Fatalf("Chdir(target) error = %v", err)
+	}
+	fallbackPath, err := ensureProcessOutsidePath(target)
+	if err != nil {
+		t.Fatalf("ensureProcessOutsidePath() error = %v", err)
+	}
+	if canonicalPath(fallbackPath) != canonicalPath(home) {
+		t.Fatalf("fallbackPath = %q, want %q", fallbackPath, home)
+	}
+
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd() after ensureProcessOutsidePath error = %v", err)
+	}
+	if canonicalPath(wd) != canonicalPath(home) {
+		t.Fatalf("working directory = %q, want %q", wd, home)
+	}
+}
+
+func TestEnsureProcessOutsidePathDoesNothingWhenOutsideTarget(t *testing.T) {
+	outside := t.TempDir()
+	target := filepath.Join(t.TempDir(), "worktree")
+	if err := os.MkdirAll(target, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+
+	originalWD, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd() error = %v", err)
+	}
+	defer func() { _ = os.Chdir(originalWD) }()
+
+	if err := os.Chdir(outside); err != nil {
+		t.Fatalf("Chdir(outside) error = %v", err)
+	}
+	fallbackPath, err := ensureProcessOutsidePath(target)
+	if err != nil {
+		t.Fatalf("ensureProcessOutsidePath() error = %v", err)
+	}
+	if fallbackPath != "" {
+		t.Fatalf("fallbackPath = %q, want empty", fallbackPath)
+	}
+
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd() after ensureProcessOutsidePath error = %v", err)
+	}
+	if canonicalPath(wd) != canonicalPath(outside) {
+		t.Fatalf("working directory = %q, want %q", wd, outside)
+	}
+}
 
 func TestPrioritizedBranchNames(t *testing.T) {
 	tests := []struct {

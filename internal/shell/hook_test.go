@@ -63,7 +63,7 @@ func readHookFile(t *testing.T, rcPath string) string {
 
 func assertHookContent(t *testing.T, content string) {
 	t.Helper()
-	for _, want := range []string{"baker()", "local baker_result_file baker_status baker_target", "command baker __shell --result-file \"$baker_result_file\" \"$@\""} {
+	for _, want := range []string{"baker()", "local baker_result_file baker_status baker_target", "command baker __shell --result-file \"$baker_result_file\" \"$@\"", "elif [ $baker_status -eq 0 ] && [ ! -d \"$PWD\" ]; then", "cd \"$HOME\""} {
 		if !strings.Contains(content, want) {
 			t.Fatalf("hook content missing %q", want)
 		}

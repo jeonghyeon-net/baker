@@ -27,6 +27,7 @@ const (
 	githubRepositoryListTimeout = 60 * time.Second
 	workspaceCreateTimeout      = 5 * time.Minute
 	workspaceSyncTimeout        = 30 * time.Second
+	deleteTimeout               = 2 * time.Minute
 )
 
 type bootstrapShell struct{}
@@ -118,6 +119,7 @@ func main() {
 }
 
 func runShellMode(ctx context.Context) (string, error) {
+	fallbackExitPath := ""
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", err
@@ -173,17 +175,25 @@ func runShellMode(ctx context.Context) (string, error) {
 			}
 			continue
 		case "delete-worktree":
-			if err := deleteSelectedWorktree(ctx, paths, registry, selection, worktreeService); err != nil {
+			path, err := deleteSelectedWorktree(ctx, paths, registry, selection, worktreeService)
+			if err != nil {
 				return "", err
+			}
+			if path != "" {
+				fallbackExitPath = path
 			}
 			continue
 		case "delete-workspace":
-			if err := deleteSelectedWorkspace(paths, registry, selection.SelectedWorkspace, workspaceService); err != nil {
+			path, err := deleteSelectedWorkspace(paths, registry, selection.SelectedWorkspace, workspaceService)
+			if err != nil {
 				return "", err
+			}
+			if path != "" {
+				fallbackExitPath = path
 			}
 			continue
 		default:
-			return "", nil
+			return fallbackExitPath, nil
 		}
 	}
 }
@@ -457,42 +467,70 @@ func openPullRequestWorktree(ctx context.Context, registry config.Registry, work
 	return "", fmt.Errorf("PR 브랜치를 찾을 수 없습니다: %s", branchName)
 }
 
-func deleteSelectedWorktree(ctx context.Context, paths config.Paths, registry config.Registry, selection ui.Model, worktreeService bakerworktree.Service) error {
+func deleteSelectedWorktree(ctx context.Context, paths config.Paths, registry config.Registry, selection ui.Model, worktreeService bakerworktree.Service) (string, error) {
+	fallbackPath, err := ensureProcessOutsidePath(selection.SelectedPath)
+	if err != nil {
+		return "", err
+	}
 	workspace, ok := findWorkspace(registry, selection.SelectedWorkspace)
 	if !ok {
-		return fmt.Errorf("워크스페이스를 찾을 수 없습니다: %s", selection.SelectedWorkspace)
+		return "", fmt.Errorf("워크스페이스를 찾을 수 없습니다: %s", selection.SelectedWorkspace)
 	}
 
 	mode, err := runDeleteModeSelection()
 	if err != nil {
-		return err
+		return "", err
 	}
 	if mode == "" {
-		return nil
+		return "", nil
 	}
 
 	worktree := domain.Worktree{
 		Path:       selection.SelectedPath,
 		BranchName: selection.SelectedBranch,
 	}
-	return worktreeService.Delete(ctx, workspace, worktree, bakerworktree.DeleteMode(mode), true)
+
+	deleteCtx, cancel := context.WithTimeout(ctx, deleteTimeout)
+	defer cancel()
+	if err := ui.RunStatus("삭제 중", "워크트리 삭제", selection.SelectedBranch+" 워크트리를 삭제하고 있습니다...", func() error {
+		return worktreeService.Delete(deleteCtx, workspace, worktree, bakerworktree.DeleteMode(mode), true)
+	}); err != nil {
+		if errors.Is(deleteCtx.Err(), context.DeadlineExceeded) {
+			return "", fmt.Errorf("%s 워크트리를 %s 안에 삭제하지 못했습니다", selection.SelectedBranch, deleteTimeout)
+		}
+		return "", err
+	}
+	return fallbackPath, nil
 }
 
-func deleteSelectedWorkspace(paths config.Paths, registry config.Registry, workspaceName string, workspaceService bakerworkspace.Service) error {
+func deleteSelectedWorkspace(paths config.Paths, registry config.Registry, workspaceName string, workspaceService bakerworkspace.Service) (string, error) {
+	workspaceRoot, _ := managedWorkspaceRoot(paths.WorktreesRoot, workspaceName)
+	fallbackPath, err := ensureProcessOutsidePath(workspaceRoot)
+	if err != nil {
+		return "", err
+	}
 	workspace, ok := findWorkspace(registry, workspaceName)
 	if !ok {
-		return fmt.Errorf("워크스페이스를 찾을 수 없습니다: %s", workspaceName)
+		return "", fmt.Errorf("워크스페이스를 찾을 수 없습니다: %s", workspaceName)
 	}
 
 	choice, err := runMappedOptionSelection("워크스페이스 삭제", "enter 선택 • esc 취소", []optionChoice{{Label: "취소", Value: "cancel"}, {Label: "워크스페이스 삭제", Value: "delete-workspace"}})
 	if err != nil {
-		return err
+		return "", err
 	}
 	if choice != "delete-workspace" {
-		return nil
+		return "", nil
 	}
-	if err := workspaceService.Delete(workspace); err != nil {
-		return err
+
+	deleteCtx, cancel := context.WithTimeout(context.Background(), deleteTimeout)
+	defer cancel()
+	if err := ui.RunStatus("삭제 중", "워크스페이스 삭제", workspaceName+" 워크스페이스를 삭제하고 있습니다...", func() error {
+		return workspaceService.Delete(workspace)
+	}); err != nil {
+		if errors.Is(deleteCtx.Err(), context.DeadlineExceeded) {
+			return "", fmt.Errorf("%s 워크스페이스를 %s 안에 삭제하지 못했습니다", workspaceName, deleteTimeout)
+		}
+		return "", err
 	}
 
 	updatedRegistry := config.Registry{Workspaces: make([]domain.Workspace, 0, len(registry.Workspaces))}
@@ -502,7 +540,45 @@ func deleteSelectedWorkspace(paths config.Paths, registry config.Registry, works
 		}
 		updatedRegistry.Workspaces = append(updatedRegistry.Workspaces, candidate)
 	}
-	return config.SaveRegistry(paths.RegistryFile, updatedRegistry)
+	if err := config.SaveRegistry(paths.RegistryFile, updatedRegistry); err != nil {
+		return "", err
+	}
+	return fallbackPath, nil
+}
+
+func ensureProcessOutsidePath(targetPath string) (string, error) {
+	if targetPath == "" {
+		return "", nil
+	}
+
+	wd, err := os.Getwd()
+	if err != nil {
+		return "", nil
+	}
+
+	cleanWD := canonicalPath(wd)
+	cleanTarget := canonicalPath(targetPath)
+	if cleanWD != cleanTarget && !strings.HasPrefix(cleanWD, cleanTarget+string(filepath.Separator)) {
+		return "", nil
+	}
+
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	if err := os.Chdir(home); err != nil {
+		return "", err
+	}
+	return home, nil
+}
+
+func canonicalPath(path string) string {
+	clean := filepath.Clean(path)
+	resolved, err := filepath.EvalSymlinks(clean)
+	if err != nil {
+		return clean
+	}
+	return resolved
 }
 
 func runRepositorySelection(repos []domain.GitHubRepo) (*domain.GitHubRepo, error) {
