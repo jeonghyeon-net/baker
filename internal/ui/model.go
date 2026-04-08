@@ -58,20 +58,41 @@ const (
 )
 
 var (
-	appStyle   = lipgloss.NewStyle().Padding(1, 2)
-	panelStyle = lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color("63")).
+	appStyle = lipgloss.NewStyle().
 			Padding(1, 2)
-	titleStyle        = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("230"))
-	subtitleStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("110"))
-	workspaceStyle    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("81"))
-	worktreeStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("252"))
-	selectedTextStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("230"))
-	selectedMetaStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("153"))
-	indicatorStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("81")).Bold(true)
-	metaStyle         = lipgloss.NewStyle().Foreground(lipgloss.Color("244"))
-	pillStyle         = lipgloss.NewStyle().Foreground(lipgloss.Color("230")).Background(lipgloss.Color("63")).Padding(0, 1)
+	panelStyle = lipgloss.NewStyle().
+			Background(lipgloss.Color("235")).
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color("240")).
+			Padding(1, 2)
+	titleStyle = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color("255"))
+	subtitleStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("109"))
+	workspaceStyle = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color("117"))
+	worktreeStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("252"))
+	selectedTextStyle = lipgloss.NewStyle().
+				Bold(true).
+				Foreground(lipgloss.Color("255")).
+				Background(lipgloss.Color("60")).
+				Padding(0, 1)
+	selectedMetaStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("153"))
+	indicatorStyle = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color("111"))
+	metaStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("245"))
+	pillStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("252")).
+			Background(lipgloss.Color("238")).
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color("240")).
+			Padding(0, 1)
 )
 
 func NewModel(state State) Model {
