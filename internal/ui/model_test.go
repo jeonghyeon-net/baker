@@ -153,3 +153,36 @@ func TestEnterSelectsDeleteMode(t *testing.T) {
 		t.Fatalf("SelectedAction = %q", updated.SelectedAction)
 	}
 }
+
+func TestEscQuitsAcrossScreens(t *testing.T) {
+	model := NewModel(State{Screen: ScreenOptions, Options: []string{"one"}})
+
+	next, cmd := model.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	updated := next.(Model)
+
+	if updated.SelectedAction != "" {
+		t.Fatalf("SelectedAction = %q", updated.SelectedAction)
+	}
+	if cmd == nil {
+		t.Fatal("expected quit command on esc")
+	}
+}
+
+func TestListViewShowsWindowStatusWhenItemsOverflow(t *testing.T) {
+	model := NewModel(State{
+		Screen:       ScreenWorkspaceGitHubPicker,
+		Title:        "Select repository",
+		Hint:         "enter select • esc cancel",
+		Height:       8,
+		Cursor:       8,
+		Repositories: []string{"1", "2", "3", "4", "5", "6", "7", "8", "9", "10"},
+	})
+
+	view := model.View()
+	if !strings.Contains(view, "8") || !strings.Contains(view, "9") {
+		t.Fatalf("view = %q", view)
+	}
+	if !strings.Contains(view, "8-10/10") {
+		t.Fatalf("view missing window status: %q", view)
+	}
+}

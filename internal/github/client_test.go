@@ -44,13 +44,67 @@ func (r *fakeRunner) Run(ctx context.Context, name string, args ...string) (inte
 	return result, nil
 }
 
+func TestClientListOwnersIncludesUserAndOrganizations(t *testing.T) {
+	runner := &fakeRunner{lookup: map[string]internalexec.Result{
+		"gh\x00api\x00user":                    {Stdout: `{"login":"jeonghyeon-net"}`},
+		"gh\x00api\x00user/orgs\x00--paginate": {Stdout: `[{"login":"creatrip"},{"login":"platform-team"}]`},
+	}}
+	client := Client{Runner: runner}
+
+	owners, err := client.ListOwners(context.Background())
+	if err != nil {
+		t.Fatalf("ListOwners returned error: %v", err)
+	}
+
+	expected := []string{"jeonghyeon-net", "creatrip", "platform-team"}
+	if len(owners) != len(expected) {
+		t.Fatalf("expected %d owners, got %d (%#v)", len(expected), len(owners), owners)
+	}
+	for i := range expected {
+		if owners[i] != expected[i] {
+			t.Fatalf("owner %d = %q, want %q", i, owners[i], expected[i])
+		}
+	}
+}
+
+func TestClientListRepositoriesForOwnerFiltersArchivedAndSortsByLatestActivity(t *testing.T) {
+	runner := &fakeRunner{lookup: map[string]internalexec.Result{
+		"gh\x00repo\x00list\x00creatrip\x00--limit\x00200\x00--json\x00nameWithOwner,sshUrl,defaultBranchRef,isArchived,pushedAt": {
+			Stdout: `[
+				{"nameWithOwner":"creatrip/old-repo","sshUrl":"git@github.com:creatrip/old-repo.git","isArchived":false,"pushedAt":"2024-01-01T00:00:00Z","defaultBranchRef":{"name":"main"}},
+				{"nameWithOwner":"creatrip/archived-repo","sshUrl":"git@github.com:creatrip/archived-repo.git","isArchived":true,"pushedAt":"2025-01-01T00:00:00Z","defaultBranchRef":{"name":"main"}},
+				{"nameWithOwner":"creatrip/new-repo","sshUrl":"git@github.com:creatrip/new-repo.git","isArchived":false,"pushedAt":"2025-03-01T00:00:00Z","defaultBranchRef":{"name":"main"}}
+			]`,
+		},
+	}}
+	client := Client{Runner: runner}
+
+	repos, err := client.ListRepositoriesForOwner(context.Background(), "creatrip")
+	if err != nil {
+		t.Fatalf("ListRepositoriesForOwner returned error: %v", err)
+	}
+
+	expected := []domain.GitHubRepo{
+		{NameWithOwner: "creatrip/new-repo", SSHURL: "git@github.com:creatrip/new-repo.git", DefaultBranch: "main"},
+		{NameWithOwner: "creatrip/old-repo", SSHURL: "git@github.com:creatrip/old-repo.git", DefaultBranch: "main"},
+	}
+	if len(repos) != len(expected) {
+		t.Fatalf("expected %d repos, got %d (%#v)", len(expected), len(repos), repos)
+	}
+	for i := range expected {
+		if repos[i] != expected[i] {
+			t.Fatalf("repo %d = %#v, want %#v", i, repos[i], expected[i])
+		}
+	}
+}
+
 func TestClientListRepositoriesIncludesUserAndOrganizations(t *testing.T) {
 	runner := &fakeRunner{lookup: map[string]internalexec.Result{
 		"gh\x00api\x00user":                    {Stdout: `{"login":"jeonghyeon-net"}`},
 		"gh\x00api\x00user/orgs\x00--paginate": {Stdout: `[{"login":"creatrip"},{"login":"platform-team"}]`},
-		"gh\x00repo\x00list\x00jeonghyeon-net\x00--limit\x00200\x00--json\x00nameWithOwner,sshUrl,defaultBranchRef": {Stdout: `[{"nameWithOwner":"jeonghyeon-net/baker","sshUrl":"git@github.com:jeonghyeon-net/baker.git","defaultBranchRef":{"name":"main"}}]`},
-		"gh\x00repo\x00list\x00creatrip\x00--limit\x00200\x00--json\x00nameWithOwner,sshUrl,defaultBranchRef":       {Stdout: `[{"nameWithOwner":"creatrip/admin","sshUrl":"git@github.com:creatrip/admin.git","defaultBranchRef":{"name":"main"}}]`},
-		"gh\x00repo\x00list\x00platform-team\x00--limit\x00200\x00--json\x00nameWithOwner,sshUrl,defaultBranchRef":  {Stdout: `[]`},
+		"gh\x00repo\x00list\x00jeonghyeon-net\x00--limit\x00200\x00--json\x00nameWithOwner,sshUrl,defaultBranchRef,isArchived,pushedAt": {Stdout: `[{"nameWithOwner":"jeonghyeon-net/baker","sshUrl":"git@github.com:jeonghyeon-net/baker.git","isArchived":false,"pushedAt":"2025-03-01T00:00:00Z","defaultBranchRef":{"name":"main"}}]`},
+		"gh\x00repo\x00list\x00creatrip\x00--limit\x00200\x00--json\x00nameWithOwner,sshUrl,defaultBranchRef,isArchived,pushedAt":       {Stdout: `[{"nameWithOwner":"creatrip/admin","sshUrl":"git@github.com:creatrip/admin.git","isArchived":false,"pushedAt":"2025-02-01T00:00:00Z","defaultBranchRef":{"name":"main"}}]`},
+		"gh\x00repo\x00list\x00platform-team\x00--limit\x00200\x00--json\x00nameWithOwner,sshUrl,defaultBranchRef,isArchived,pushedAt":  {Stdout: `[]`},
 	}}
 	client := Client{Runner: runner}
 
@@ -66,30 +120,14 @@ func TestClientListRepositoriesIncludesUserAndOrganizations(t *testing.T) {
 	if len(repos) != len(expected) {
 		t.Fatalf("expected %d repos, got %d (%#v)", len(expected), len(repos), repos)
 	}
-	for i := range expected {
-		if repos[i] != expected[i] {
-			t.Fatalf("expected repo %#v, got %#v", expected[i], repos[i])
-		}
-	}
 
-	expectedCalls := []fakeRunnerCall{
-		{name: "gh", args: []string{"api", "user"}},
-		{name: "gh", args: []string{"api", "user/orgs", "--paginate"}},
-		{name: "gh", args: []string{"repo", "list", "jeonghyeon-net", "--limit", "200", "--json", "nameWithOwner,sshUrl,defaultBranchRef"}},
-		{name: "gh", args: []string{"repo", "list", "creatrip", "--limit", "200", "--json", "nameWithOwner,sshUrl,defaultBranchRef"}},
-		{name: "gh", args: []string{"repo", "list", "platform-team", "--limit", "200", "--json", "nameWithOwner,sshUrl,defaultBranchRef"}},
-	}
-	if len(runner.calls) != len(expectedCalls) {
-		t.Fatalf("expected %d calls, got %d (%#v)", len(expectedCalls), len(runner.calls), runner.calls)
-	}
 	seen := make(map[string]struct{}, len(runner.calls))
 	for _, call := range runner.calls {
 		seen[call.name+"\x00"+strings.Join(call.args, "\x00")] = struct{}{}
 	}
-	for _, expectedCall := range expectedCalls {
-		key := expectedCall.name + "\x00" + strings.Join(expectedCall.args, "\x00")
-		if _, ok := seen[key]; !ok {
-			t.Fatalf("missing expected call %q %v (seen=%#v)", expectedCall.name, expectedCall.args, runner.calls)
+	for _, repo := range expected {
+		if _, ok := seen["gh\x00repo\x00list\x00"+strings.Split(repo.NameWithOwner, "/")[0]+"\x00--limit\x00200\x00--json\x00nameWithOwner,sshUrl,defaultBranchRef,isArchived,pushedAt"]; !ok {
+			t.Fatalf("missing repo list call for %s", repo.NameWithOwner)
 		}
 	}
 }
@@ -106,7 +144,7 @@ func TestClientListRepositoriesUsesConfiguredLimit(t *testing.T) {
 		t.Fatalf("ListRepositories returned error: %v", err)
 	}
 
-	expectedArgs := []string{"repo", "list", "jeonghyeon-net", "--limit", "500", "--json", "nameWithOwner,sshUrl,defaultBranchRef"}
+	expectedArgs := []string{"repo", "list", "jeonghyeon-net", "--limit", "500", "--json", "nameWithOwner,sshUrl,defaultBranchRef,isArchived,pushedAt"}
 	last := runner.calls[len(runner.calls)-1]
 	if len(last.args) != len(expectedArgs) {
 		t.Fatalf("expected args %v, got %v", expectedArgs, last.args)

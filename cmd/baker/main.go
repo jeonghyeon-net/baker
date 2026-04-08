@@ -199,19 +199,40 @@ func addWorkspace(ctx context.Context, paths config.Paths, registry config.Regis
 
 	switch mode {
 	case "github":
-		reposCtx, cancel := context.WithTimeout(ctx, githubRepositoryListTimeout)
+		ownersCtx, cancel := context.WithTimeout(ctx, githubRepositoryListTimeout)
 		defer cancel()
-		repos, err := withTransientStatusValue("Loading GitHub repositories...", func() ([]domain.GitHubRepo, error) {
-			return githubClient.ListRepositories(reposCtx)
+		owners, err := withTransientStatusValue("Loading GitHub owners...", func() ([]string, error) {
+			return githubClient.ListOwners(ownersCtx)
+		})
+		if err != nil {
+			if errors.Is(ownersCtx.Err(), context.DeadlineExceeded) {
+				return fmt.Errorf("loading GitHub owners timed out after %s", githubRepositoryListTimeout)
+			}
+			return err
+		}
+		if len(owners) == 0 {
+			fmt.Println("표시할 GitHub owner가 없습니다.")
+			return nil
+		}
+
+		selectedOwner, err := runOptionSelection("Select owner", "enter select • esc cancel", owners)
+		if err != nil || selectedOwner == "" {
+			return err
+		}
+
+		reposCtx, cancelRepos := context.WithTimeout(ctx, githubRepositoryListTimeout)
+		defer cancelRepos()
+		repos, err := withTransientStatusValue("Loading repositories for "+selectedOwner+"...", func() ([]domain.GitHubRepo, error) {
+			return githubClient.ListRepositoriesForOwner(reposCtx, selectedOwner)
 		})
 		if err != nil {
 			if errors.Is(reposCtx.Err(), context.DeadlineExceeded) {
-				return fmt.Errorf("loading GitHub repositories timed out after %s", githubRepositoryListTimeout)
+				return fmt.Errorf("loading repositories for %s timed out after %s", selectedOwner, githubRepositoryListTimeout)
 			}
 			return err
 		}
 		if len(repos) == 0 {
-			fmt.Println("표시할 GitHub 저장소가 없습니다.")
+			fmt.Printf("%s 에 표시할 repository가 없습니다.\n", selectedOwner)
 			return nil
 		}
 
@@ -347,7 +368,7 @@ func deleteSelectedWorkspace(paths config.Paths, registry config.Registry, works
 		return fmt.Errorf("workspace not found: %s", workspaceName)
 	}
 
-	choice, err := runOptionSelection("Delete workspace", "This removes the bare repository and all managed worktrees", []string{"cancel", "delete workspace"})
+	choice, err := runOptionSelection("Delete workspace", "enter select • esc cancel", []string{"cancel", "delete workspace"})
 	if err != nil {
 		return err
 	}
@@ -374,7 +395,7 @@ func runRepositorySelection(repos []domain.GitHubRepo) (*domain.GitHubRepo, erro
 		names = append(names, repo.NameWithOwner)
 	}
 
-	finalModel, err := tea.NewProgram(ui.NewModel(ui.State{Screen: ui.ScreenWorkspaceGitHubPicker, Title: "Select repository", Hint: "Enter to select, esc to cancel", Repositories: names}), tea.WithAltScreen()).Run()
+	finalModel, err := tea.NewProgram(ui.NewModel(ui.State{Screen: ui.ScreenWorkspaceGitHubPicker, Title: "Select repository", Hint: "enter select • esc cancel", Repositories: names}), tea.WithAltScreen()).Run()
 	if err != nil {
 		return nil, err
 	}
@@ -461,7 +482,7 @@ func runOptionSelection(title, hint string, options []string) (string, error) {
 }
 
 func promptAddWorkspaceMode() (string, error) {
-	choice, err := runOptionSelection("Add workspace", "Enter to select, esc to cancel", []string{"github", "url"})
+	choice, err := runOptionSelection("Add workspace", "enter select • esc cancel", []string{"github", "url"})
 	if err != nil {
 		return "", err
 	}
@@ -479,7 +500,7 @@ func suggestedWorkspaceNameFromRemote(remoteURL string) string {
 }
 
 func promptCreateMode() (string, error) {
-	choice, err := runOptionSelection("Create worktree", "Enter to select, esc to cancel", []string{"existing", "new"})
+	choice, err := runOptionSelection("Create worktree", "enter select • esc cancel", []string{"existing", "new"})
 	if err != nil {
 		return "", err
 	}
@@ -487,7 +508,7 @@ func promptCreateMode() (string, error) {
 }
 
 func promptText(label string) (string, error) {
-	return ui.PromptText(label, "Enter to submit, esc to cancel", label)
+	return ui.PromptText(label, "enter submit • esc cancel", label)
 }
 
 func runBranchSelection(branches []string, includeNewBranchOption bool) (string, error) {
@@ -497,7 +518,7 @@ func runBranchSelection(branches []string, includeNewBranchOption bool) (string,
 	}
 	items = append(items, branches...)
 
-	finalModel, err := tea.NewProgram(ui.NewModel(ui.State{Screen: ui.ScreenCreateWorktree, Title: "Select branch", Hint: "Enter to select, esc to cancel", Branches: items}), tea.WithAltScreen()).Run()
+	finalModel, err := tea.NewProgram(ui.NewModel(ui.State{Screen: ui.ScreenCreateWorktree, Title: "Select branch", Hint: "enter select • esc cancel", Branches: items}), tea.WithAltScreen()).Run()
 	if err != nil {
 		return "", err
 	}
@@ -513,7 +534,7 @@ func runBranchSelection(branches []string, includeNewBranchOption bool) (string,
 
 func runDeleteModeSelection() (string, error) {
 	modes := []string{string(bakerworktree.DeleteModeLocalBranch), string(bakerworktree.DeleteModeAll)}
-	finalModel, err := tea.NewProgram(ui.NewModel(ui.State{Screen: ui.ScreenDeleteConfirm, Title: "Delete worktree", Hint: "Default is local branch deletion", DeleteModes: modes}), tea.WithAltScreen()).Run()
+	finalModel, err := tea.NewProgram(ui.NewModel(ui.State{Screen: ui.ScreenDeleteConfirm, Title: "Delete worktree", Hint: "enter select • esc cancel", DeleteModes: modes}), tea.WithAltScreen()).Run()
 	if err != nil {
 		return "", err
 	}

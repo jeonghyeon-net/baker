@@ -3,7 +3,9 @@ package github
 import (
 	"context"
 	"encoding/json"
+	"sort"
 	"strconv"
+	"time"
 
 	"github.com/jeonghyeon-net/baker/internal/domain"
 	internalexec "github.com/jeonghyeon-net/baker/internal/exec"
@@ -23,8 +25,26 @@ type Client struct {
 
 type defaultRunner struct{}
 
+type ghRepository struct {
+	NameWithOwner    string `json:"nameWithOwner"`
+	SSHURL           string `json:"sshUrl"`
+	IsArchived       bool   `json:"isArchived"`
+	PushedAt         string `json:"pushedAt"`
+	DefaultBranchRef struct {
+		Name string `json:"name"`
+	} `json:"defaultBranchRef"`
+}
+
 func (defaultRunner) Run(ctx context.Context, name string, args ...string) (internalexec.Result, error) {
 	return internalexec.CommandRunner{}.Run(ctx, name, args...)
+}
+
+func (c Client) ListOwners(ctx context.Context) ([]string, error) {
+	return c.listOwners(ctx)
+}
+
+func (c Client) ListRepositoriesForOwner(ctx context.Context, owner string) ([]domain.GitHubRepo, error) {
+	return c.listRepositoriesForOwner(ctx, owner)
 }
 
 func (c Client) ListRepositories(ctx context.Context) ([]domain.GitHubRepo, error) {
@@ -101,24 +121,25 @@ func (c Client) listOwners(ctx context.Context) ([]string, error) {
 }
 
 func (c Client) listRepositoriesForOwner(ctx context.Context, owner string) ([]domain.GitHubRepo, error) {
-	result, err := c.runner().Run(ctx, "gh", "repo", "list", owner, "--limit", strconv.Itoa(c.repositoryListLimit()), "--json", "nameWithOwner,sshUrl,defaultBranchRef")
+	result, err := c.runner().Run(ctx, "gh", "repo", "list", owner, "--limit", strconv.Itoa(c.repositoryListLimit()), "--json", "nameWithOwner,sshUrl,defaultBranchRef,isArchived,pushedAt")
 	if err != nil {
 		return nil, err
 	}
 
-	var response []struct {
-		NameWithOwner    string `json:"nameWithOwner"`
-		SSHURL           string `json:"sshUrl"`
-		DefaultBranchRef struct {
-			Name string `json:"name"`
-		} `json:"defaultBranchRef"`
-	}
+	var response []ghRepository
 	if err := json.Unmarshal([]byte(result.Stdout), &response); err != nil {
 		return nil, err
 	}
 
+	sort.SliceStable(response, func(i, j int) bool {
+		return parsePushedAt(response[i].PushedAt).After(parsePushedAt(response[j].PushedAt))
+	})
+
 	repos := make([]domain.GitHubRepo, 0, len(response))
 	for _, repo := range response {
+		if repo.IsArchived {
+			continue
+		}
 		repos = append(repos, domain.GitHubRepo{
 			NameWithOwner: repo.NameWithOwner,
 			SSHURL:        repo.SSHURL,
@@ -127,6 +148,14 @@ func (c Client) listRepositoriesForOwner(ctx context.Context, owner string) ([]d
 	}
 
 	return repos, nil
+}
+
+func parsePushedAt(value string) time.Time {
+	parsed, err := time.Parse(time.RFC3339, value)
+	if err != nil {
+		return time.Time{}
+	}
+	return parsed
 }
 
 func (c Client) runner() Runner {

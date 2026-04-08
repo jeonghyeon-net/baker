@@ -12,6 +12,7 @@ type textInputModel struct {
 	value       string
 	submitted   bool
 	placeholder string
+	height      int
 }
 
 func NewTextInputModel(title, hint, placeholder string) textInputModel {
@@ -33,6 +34,13 @@ func (m textInputModel) Init() tea.Cmd { return textinput.Blink }
 
 func (m textInputModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		m.height = msg.Height
+		m.input.Width = msg.Width - 4
+		if m.input.Width < 20 {
+			m.input.Width = 20
+		}
+		return m, nil
 	case tea.KeyMsg:
 		switch msg.Type {
 		case tea.KeyCtrlC, tea.KeyEsc:
@@ -51,7 +59,7 @@ func (m textInputModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m textInputModel) View() string {
 	body := m.input.View()
-	return renderScreen(withDefaultTitle(m.title, "Input"), body, m.hint)
+	return renderScreen(withDefaultTitle(m.title, "Input"), body, metaStyle.Render(withDefaultHint(m.hint, "enter submit • esc cancel")))
 }
 
 func PromptText(title, hint, placeholder string) (string, error) {
