@@ -126,54 +126,30 @@ func runShellMode(ctx context.Context) (string, error) {
 		return "", err
 	}
 
-	action, err := runMainMenu(len(worktrees) > 0)
+	selectedPath, action, err := runWorktreeSelection(worktrees)
 	if err != nil {
 		return "", err
 	}
-
-	switch action {
-	case "open":
-		if len(worktrees) == 0 {
-			fmt.Println("관리 중인 worktree가 없습니다.")
-			return "", nil
-		}
-		return runWorktreeSelection(worktrees)
-	case "create", "create-workspace-github":
+	if selectedPath != "" {
+		return selectedPath, nil
+	}
+	if action == "create-workspace-github" {
 		return createInitialWorktree(ctx, paths, registry)
-	default:
-		return "", nil
 	}
+	return "", nil
 }
 
-func runMainMenu(hasWorktrees bool) (string, error) {
-	actions := []string{"create-workspace-github", "quit"}
-	if hasWorktrees {
-		actions = []string{"open", "create-workspace-github", "quit"}
-	}
-
-	finalModel, err := tea.NewProgram(ui.NewModel(ui.State{Screen: ui.ScreenMainMenu, Actions: actions})).Run()
-	if err != nil {
-		return "", err
-	}
-
-	selected, ok := finalModel.(ui.Model)
-	if !ok {
-		return "", fmt.Errorf("unexpected ui model type %T", finalModel)
-	}
-	return selected.SelectedAction, nil
-}
-
-func runWorktreeSelection(worktrees []string) (string, error) {
+func runWorktreeSelection(worktrees []string) (string, string, error) {
 	finalModel, err := tea.NewProgram(ui.NewModel(ui.State{Screen: ui.ScreenWorktrees, Worktrees: worktrees})).Run()
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 
 	selected, ok := finalModel.(ui.Model)
 	if !ok {
-		return "", fmt.Errorf("unexpected ui model type %T", finalModel)
+		return "", "", fmt.Errorf("unexpected ui model type %T", finalModel)
 	}
-	return selected.SelectedPath, nil
+	return selected.SelectedPath, selected.SelectedAction, nil
 }
 
 func createInitialWorktree(ctx context.Context, paths config.Paths, registry config.Registry) (string, error) {

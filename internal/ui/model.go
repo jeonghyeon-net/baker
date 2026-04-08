@@ -9,7 +9,6 @@ import (
 type Screen string
 
 const (
-	ScreenMainMenu              Screen = "main-menu"
 	ScreenWorktrees             Screen = "worktrees"
 	ScreenCreateWorktree        Screen = "create-worktree"
 	ScreenWorkspaceGitHubPicker Screen = "workspace-github-picker"
@@ -45,8 +44,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case tea.KeyCtrlC, tea.KeyEsc:
 			return m, tea.Quit
 		case tea.KeyRunes:
-			if msg.String() == "q" {
+			switch msg.String() {
+			case "q":
 				return m, tea.Quit
+			case "c":
+				if m.Screen == ScreenWorktrees {
+					m.SelectedAction = "create-workspace-github"
+					return m, tea.Quit
+				}
 			}
 		case tea.KeyUp:
 			if m.Cursor > 0 {
@@ -59,12 +64,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case tea.KeyEnter:
 			switch m.Screen {
-			case ScreenMainMenu:
-				if len(m.Actions) > 0 {
-					m.SelectedAction = m.Actions[clampIndex(m.Cursor, len(m.Actions))]
-					return m, tea.Quit
-				}
-				return m, nil
 			case ScreenWorkspaceGitHubPicker:
 				if len(m.Repositories) > 0 {
 					m.SelectedPath = m.Repositories[clampIndex(m.Cursor, len(m.Repositories))]
@@ -110,7 +109,7 @@ func (m Model) View() string {
 	items := m.currentItems()
 	if len(items) == 0 {
 		if m.Screen == ScreenWorktrees {
-			return "No worktrees"
+			return "No worktrees\n\nKeys: c create worktree, q quit"
 		}
 		return "No items"
 	}
@@ -121,9 +120,13 @@ func (m Model) View() string {
 		if i == m.Cursor {
 			prefix = "> "
 		}
-		lines = append(lines, prefix+displayItem(item))
+		lines = append(lines, prefix+item)
 	}
-	return strings.Join(lines, "\n")
+	body := strings.Join(lines, "\n")
+	if m.Screen == ScreenWorktrees {
+		return body + "\n\nKeys: enter open, c create worktree, q quit"
+	}
+	return body
 }
 
 func (m Model) currentItems() []string {
@@ -144,19 +147,6 @@ func (m Model) currentItems() []string {
 
 func (m Model) listLength() int {
 	return len(m.currentItems())
-}
-
-func displayItem(item string) string {
-	switch item {
-	case "open":
-		return "기존 worktree 열기"
-	case "create-workspace-github":
-		return "GitHub 저장소로 worktree 생성"
-	case "quit":
-		return "종료"
-	default:
-		return item
-	}
 }
 
 func clampIndex(index int, length int) int {
