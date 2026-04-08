@@ -325,12 +325,12 @@ func renderPanel(title, subtitle, body, footer string) string {
 func (m Model) worktreeScreenHint() string {
 	item, ok := m.currentWorktreeItem()
 	if !ok {
-		return renderActionPanel([]string{"a  워크스페이스 추가", "←→  워크스페이스 이동", "esc  종료"})
+		return renderActionPanel([]string{"a  워크스페이스 추가", "← →  워크스페이스 이동", "esc  종료"})
 	}
 	if item.Selectable {
 		return renderActionPanel([]string{
 			"enter  현재 워크트리 열기",
-			"←→  워크스페이스 이동",
+			"← →  워크스페이스 이동",
 			fmt.Sprintf("c  %s에 새 워크트리 만들기", item.WorkspaceName),
 			"d  현재 워크트리 삭제",
 			"esc  종료",
@@ -339,13 +339,13 @@ func (m Model) worktreeScreenHint() string {
 	if item.WorkspaceName != "" {
 		return renderActionPanel([]string{
 			"a  새 워크스페이스 추가",
-			"←→  워크스페이스 이동",
+			"← →  워크스페이스 이동",
 			fmt.Sprintf("c  %s에 새 워크트리 만들기", item.WorkspaceName),
 			fmt.Sprintf("d  %s 삭제", item.WorkspaceName),
 			"esc  종료",
 		})
 	}
-	return renderActionPanel([]string{"a  워크스페이스 추가", "←→  워크스페이스 이동", "esc  종료"})
+	return renderActionPanel([]string{"a  워크스페이스 추가", "← →  워크스페이스 이동", "esc  종료"})
 }
 
 func renderActionPanel(lines []string) string {
@@ -372,22 +372,27 @@ func (m Model) jumpWorkspace(delta int) Model {
 		return m
 	}
 
-	if delta > 0 {
-		for i := m.Cursor + 1; i < len(m.Worktrees); i++ {
-			if !m.Worktrees[i].Selectable && m.Worktrees[i].WorkspaceName != "" {
-				m.Cursor = i
-				return m
-			}
+	workspaceIndexes := make([]int, 0)
+	for i, item := range m.Worktrees {
+		if !item.Selectable && item.WorkspaceName != "" {
+			workspaceIndexes = append(workspaceIndexes, i)
 		}
+	}
+	if len(workspaceIndexes) == 0 {
 		return m
 	}
 
-	for i := m.Cursor - 1; i >= 0; i-- {
-		if !m.Worktrees[i].Selectable && m.Worktrees[i].WorkspaceName != "" {
-			m.Cursor = i
-			return m
+	currentGroup := 0
+	for i, index := range workspaceIndexes {
+		if index <= m.Cursor {
+			currentGroup = i
+		} else {
+			break
 		}
 	}
+
+	nextGroup := wrapIndex(currentGroup+delta, len(workspaceIndexes))
+	m.Cursor = workspaceIndexes[nextGroup]
 	return m
 }
 
@@ -399,13 +404,7 @@ func (m Model) moveCursor(delta int) Model {
 	if length == 0 {
 		return m
 	}
-	m.Cursor += delta
-	if m.Cursor < 0 {
-		m.Cursor = 0
-	}
-	if m.Cursor >= length {
-		m.Cursor = length - 1
-	}
+	m.Cursor = wrapIndex(m.Cursor+delta, length)
 	return m
 }
 
@@ -554,6 +553,17 @@ func withDefaultHint(hint, fallback string) string {
 		return hint
 	}
 	return fallback
+}
+
+func wrapIndex(index int, length int) int {
+	if length <= 0 {
+		return 0
+	}
+	index %= length
+	if index < 0 {
+		index += length
+	}
+	return index
 }
 
 func clampIndex(index int, length int) int {

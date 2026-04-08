@@ -186,3 +186,50 @@ func TestListViewShowsWindowStatusWhenItemsOverflow(t *testing.T) {
 		t.Fatalf("view missing window status: %q", view)
 	}
 }
+
+func TestMoveCursorWrapsFromEndToStart(t *testing.T) {
+	model := NewModel(State{Screen: ScreenOptions, Options: []string{"one", "two", "three"}, Cursor: 2})
+
+	next, _ := model.Update(tea.KeyMsg{Type: tea.KeyDown})
+	updated := next.(Model)
+
+	if updated.Cursor != 0 {
+		t.Fatalf("Cursor = %d, want 0", updated.Cursor)
+	}
+}
+
+func TestMoveCursorWrapsFromStartToEnd(t *testing.T) {
+	model := NewModel(State{Screen: ScreenOptions, Options: []string{"one", "two", "three"}, Cursor: 0})
+
+	next, _ := model.Update(tea.KeyMsg{Type: tea.KeyUp})
+	updated := next.(Model)
+
+	if updated.Cursor != 2 {
+		t.Fatalf("Cursor = %d, want 2", updated.Cursor)
+	}
+}
+
+func TestJumpWorkspaceWrapsAcrossGroups(t *testing.T) {
+	model := NewModel(State{
+		Screen: ScreenWorktrees,
+		Worktrees: []WorktreeItem{
+			{Label: "▾ baker", WorkspaceName: "baker"},
+			{Label: "  └─ main", WorkspaceName: "baker", Path: "/tmp/baker/main", Selectable: true},
+			{Label: "▾ api", WorkspaceName: "api"},
+			{Label: "  └─ main", WorkspaceName: "api", Path: "/tmp/api/main", Selectable: true},
+		},
+		Cursor: 2,
+	})
+
+	next, _ := model.Update(tea.KeyMsg{Type: tea.KeyRight})
+	updated := next.(Model)
+	if updated.Cursor != 0 {
+		t.Fatalf("Cursor after right = %d, want 0", updated.Cursor)
+	}
+
+	next, _ = updated.Update(tea.KeyMsg{Type: tea.KeyLeft})
+	updated = next.(Model)
+	if updated.Cursor != 2 {
+		t.Fatalf("Cursor after left = %d, want 2", updated.Cursor)
+	}
+}
