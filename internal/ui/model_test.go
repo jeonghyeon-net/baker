@@ -232,6 +232,29 @@ func TestListViewShowsWindowStatusWhenItemsOverflow(t *testing.T) {
 	}
 }
 
+func TestMergeWorkspacePullRequestsMarksExistingWorktreesAndAppendsUnmaterializedPRs(t *testing.T) {
+	items := []WorktreeItem{
+		{Label: "▾ baker", WorkspaceName: "baker"},
+		{Label: "  ├─ main", WorkspaceName: "baker", WorktreeName: "main", Path: "/tmp/baker/main", BranchName: "main", Selectable: true},
+		{Label: "  └─ feature-login", WorkspaceName: "baker", WorktreeName: "feature-login", Path: "/tmp/baker/feature-login", BranchName: "feature/login", Selectable: true},
+	}
+	prItems := []WorktreeItem{
+		{WorkspaceName: "baker", Path: "/tmp/baker/feature-login", BranchName: "feature/login", PullRequestNumber: 42, PullRequestTitle: "로그인 수정", Selectable: true},
+		{WorkspaceName: "baker", BranchName: "feature/signup", PullRequestNumber: 77, PullRequestTitle: "회원가입 수정", Selectable: true},
+	}
+
+	merged := mergeWorkspacePullRequests(items, "baker", prItems)
+	if len(merged) != 4 {
+		t.Fatalf("len(merged) = %d, want 4 (%#v)", len(merged), merged)
+	}
+	if !strings.Contains(merged[2].Label, "[PR #42]") {
+		t.Fatalf("existing worktree label = %q", merged[2].Label)
+	}
+	if merged[3].PullRequestNumber != 77 || !strings.Contains(merged[3].Label, "PR #77") {
+		t.Fatalf("unmaterialized pr row = %#v", merged[3])
+	}
+}
+
 func TestMoveCursorWrapsFromEndToStart(t *testing.T) {
 	model := NewModel(State{Screen: ScreenOptions, Options: []string{"one", "two", "three"}, Cursor: 2})
 

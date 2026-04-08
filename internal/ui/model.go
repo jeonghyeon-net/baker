@@ -414,12 +414,38 @@ func mergeWorkspacePullRequests(items []WorktreeItem, workspaceName string, prIt
 	merged := append([]WorktreeItem{}, items[:start+1]...)
 	workspaceItems := make([]WorktreeItem, 0, end-start-1+len(prItems))
 	for _, item := range items[start+1 : end] {
-		if item.PullRequestNumber > 0 {
+		if item.PullRequestNumber > 0 && item.Path == "" {
 			continue
 		}
 		workspaceItems = append(workspaceItems, item)
 	}
-	workspaceItems = append(workspaceItems, prItems...)
+
+	matched := make(map[string]struct{}, len(prItems))
+	for i := range workspaceItems {
+		if workspaceItems[i].Path == "" {
+			continue
+		}
+		for _, prItem := range prItems {
+			if prItem.Path == "" || prItem.BranchName != workspaceItems[i].BranchName {
+				continue
+			}
+			workspaceItems[i].PullRequestNumber = prItem.PullRequestNumber
+			workspaceItems[i].PullRequestTitle = prItem.PullRequestTitle
+			matched[prItem.BranchName] = struct{}{}
+			break
+		}
+	}
+
+	for _, prItem := range prItems {
+		if prItem.Path != "" {
+			continue
+		}
+		if _, ok := matched[prItem.BranchName]; ok {
+			continue
+		}
+		workspaceItems = append(workspaceItems, prItem)
+	}
+
 	workspaceItems = relabelWorkspaceItems(workspaceItems)
 	merged = append(merged, workspaceItems...)
 	merged = append(merged, items[end:]...)
@@ -430,20 +456,20 @@ func relabelWorkspaceItems(items []WorktreeItem) []WorktreeItem {
 	relabeled := append([]WorktreeItem{}, items...)
 	for i := range relabeled {
 		last := i == len(relabeled)-1
-		if relabeled[i].PullRequestNumber > 0 {
-			connector := "├─"
-			if last {
-				connector = "└─"
-			}
+		connector := "├─"
+		if last {
+			connector = "└─"
+		}
+		if relabeled[i].PullRequestNumber > 0 && relabeled[i].Path == "" {
 			relabeled[i].Label = fmt.Sprintf("  %s PR #%d %s", connector, relabeled[i].PullRequestNumber, relabeled[i].PullRequestTitle)
 			continue
 		}
 		if relabeled[i].Selectable {
-			connector := "├─"
-			if last {
-				connector = "└─"
+			label := "  " + connector + " " + relabeled[i].WorktreeName
+			if relabeled[i].PullRequestNumber > 0 {
+				label += fmt.Sprintf("  [PR #%d]", relabeled[i].PullRequestNumber)
 			}
-			relabeled[i].Label = "  " + connector + " " + relabeled[i].WorktreeName
+			relabeled[i].Label = label
 		}
 	}
 	return relabeled
