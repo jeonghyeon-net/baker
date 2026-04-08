@@ -23,7 +23,8 @@ Baker는 두 단계의 객체를 관리한다.
 
 앱의 기본 사용 흐름은 shell 중심이다.
 - `baker`를 실행한다.
-- 기존 worktree를 고르거나, 처음이라면 GitHub 저장소를 고른다.
+- 먼저 메인 메뉴에서 무엇을 할지 고른다.
+- 기존 worktree를 열거나, 생성 모드로 들어가 GitHub 저장소를 고른다.
 - Baker가 선택된 경로를 shell wrapper에 넘긴다.
 - 현재 shell이 해당 worktree 디렉터리로 이동한다.
 
@@ -35,8 +36,9 @@ Baker는 두 단계의 객체를 관리한다.
 
 - zsh / bash shell integration
 - shell hook 자동 설치
-- 기존 worktree를 고르는 간단한 터미널 UI
-- `gh repo list` 기반의 첫 GitHub 저장소 선택
+- 간단한 메인 메뉴
+- 기존 worktree를 고르는 터미널 UI
+- 생성 모드에서만 진입하는 `gh repo list` 기반 GitHub 저장소 선택
 - 선택한 저장소로부터 workspace + 초기 worktree 자동 생성
 - ~/.pi 아래 bare repository 기반 Git 관리
 - 실제 `git` CLI를 사용하는 remote-aware 동작
@@ -47,15 +49,16 @@ Baker는 두 단계의 객체를 관리한다.
 2. shell hook이 설치되어 있지 않으면 ~/.zshrc 또는 ~/.bashrc에 hook을 기록
 3. `source ~/.zshrc` 또는 `source ~/.bashrc` 실행
 4. 다시 `baker` 실행
-5. 아직 관리 중인 worktree가 하나도 없으면:
+5. 메인 메뉴가 뜬다.
+6. 기존 worktree 열기를 고르면:
+   - 관리 중인 worktree 목록을 보여준다.
+   - 선택한 worktree 경로를 shell에 돌려준다.
+7. GitHub 저장소로 worktree 생성을 고르면:
    - `gh`를 이용한 GitHub 저장소 선택 화면이 뜬다.
    - 선택한 저장소에 대해 workspace를 생성하거나 재사용한다.
    - remote ref를 동기화한다.
    - 저장소의 default branch(없으면 첫 번째 브랜치) 기준으로 worktree를 만든다.
    - 생성된 경로를 shell에 돌려준다.
-6. 이미 관리 중인 worktree가 있으면:
-   - worktree 목록을 보여준다.
-   - 선택한 worktree 경로를 shell에 돌려준다.
 
 
 필요 조건

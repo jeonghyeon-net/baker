@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"flag"
 	"fmt"
@@ -125,11 +126,68 @@ func runShellMode(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if len(worktrees) > 0 {
-		return runWorktreeSelection(worktrees)
+
+	action, err := promptMainAction(len(worktrees) > 0)
+	if err != nil {
+		return "", err
 	}
 
-	return createInitialWorktree(ctx, paths, registry)
+	switch action {
+	case "open":
+		if len(worktrees) == 0 {
+			fmt.Println("관리 중인 worktree가 없습니다.")
+			return "", nil
+		}
+		return runWorktreeSelection(worktrees)
+	case "create":
+		return createInitialWorktree(ctx, paths, registry)
+	default:
+		return "", nil
+	}
+}
+
+func promptMainAction(hasWorktrees bool) (string, error) {
+	reader := bufio.NewReader(os.Stdin)
+
+	fmt.Println("baker")
+	fmt.Println("=====")
+	if hasWorktrees {
+		fmt.Println("1. 기존 worktree 열기")
+		fmt.Println("2. GitHub 저장소로 worktree 생성")
+		fmt.Println("q. 종료")
+	} else {
+		fmt.Println("1. GitHub 저장소로 worktree 생성")
+		fmt.Println("q. 종료")
+	}
+	fmt.Print("> ")
+
+	input, err := reader.ReadString('\n')
+	if err != nil {
+		return "", err
+	}
+	choice := strings.TrimSpace(input)
+
+	if hasWorktrees {
+		switch choice {
+		case "1":
+			return "open", nil
+		case "2":
+			return "create", nil
+		case "q", "quit", "":
+			return "quit", nil
+		default:
+			return "quit", nil
+		}
+	}
+
+	switch choice {
+	case "1":
+		return "create", nil
+	case "q", "quit", "":
+		return "quit", nil
+	default:
+		return "quit", nil
+	}
 }
 
 func runWorktreeSelection(worktrees []string) (string, error) {
