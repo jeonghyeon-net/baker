@@ -35,6 +35,15 @@ type ghRepository struct {
 	} `json:"defaultBranchRef"`
 }
 
+type ghPullRequest struct {
+	Number            int    `json:"number"`
+	Title             string `json:"title"`
+	HeadRefName       string `json:"headRefName"`
+	UpdatedAt         string `json:"updatedAt"`
+	IsDraft           bool   `json:"isDraft"`
+	IsCrossRepository bool   `json:"isCrossRepository"`
+}
+
 func (defaultRunner) Run(ctx context.Context, name string, args ...string) (internalexec.Result, error) {
 	return internalexec.CommandRunner{}.Run(ctx, name, args...)
 }
@@ -45,6 +54,39 @@ func (c Client) ListOwners(ctx context.Context) ([]string, error) {
 
 func (c Client) ListRepositoriesForOwner(ctx context.Context, owner string) ([]domain.GitHubRepo, error) {
 	return c.listRepositoriesForOwner(ctx, owner)
+}
+
+func (c Client) ListMyPullRequestsForRepository(ctx context.Context, owner, repo string) ([]domain.GitHubPullRequest, error) {
+	result, err := c.runner().Run(ctx, "gh", "pr", "list", "--repo", owner+"/"+repo, "--author", "@me", "--state", "open", "--json", "number,title,headRefName,updatedAt,isDraft,isCrossRepository")
+	if err != nil {
+		return nil, err
+	}
+
+	var response []ghPullRequest
+	if err := json.Unmarshal([]byte(result.Stdout), &response); err != nil {
+		return nil, err
+	}
+
+	sort.SliceStable(response, func(i, j int) bool {
+		return parseTimestamp(response[i].UpdatedAt).After(parseTimestamp(response[j].UpdatedAt))
+	})
+
+	prs := make([]domain.GitHubPullRequest, 0, len(response))
+	for _, pr := range response {
+		if pr.IsCrossRepository {
+			continue
+		}
+		prs = append(prs, domain.GitHubPullRequest{
+			Number:            pr.Number,
+			Title:             pr.Title,
+			HeadRefName:       pr.HeadRefName,
+			UpdatedAt:         pr.UpdatedAt,
+			IsDraft:           pr.IsDraft,
+			IsCrossRepository: pr.IsCrossRepository,
+		})
+	}
+
+	return prs, nil
 }
 
 func (c Client) ListRepositories(ctx context.Context) ([]domain.GitHubRepo, error) {
@@ -132,7 +174,7 @@ func (c Client) listRepositoriesForOwner(ctx context.Context, owner string) ([]d
 	}
 
 	sort.SliceStable(response, func(i, j int) bool {
-		return parsePushedAt(response[i].PushedAt).After(parsePushedAt(response[j].PushedAt))
+		return parseTimestamp(response[i].PushedAt).After(parseTimestamp(response[j].PushedAt))
 	})
 
 	repos := make([]domain.GitHubRepo, 0, len(response))
@@ -150,7 +192,7 @@ func (c Client) listRepositoriesForOwner(ctx context.Context, owner string) ([]d
 	return repos, nil
 }
 
-func parsePushedAt(value string) time.Time {
+func parseTimestamp(value string) time.Time {
 	parsed, err := time.Parse(time.RFC3339, value)
 	if err != nil {
 		return time.Time{}

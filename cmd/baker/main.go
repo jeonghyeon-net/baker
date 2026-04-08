@@ -135,7 +135,7 @@ func runShellMode(ctx context.Context) (string, error) {
 			return "", err
 		}
 
-		worktrees, err := loadWorktreeItems(ctx, paths, registry, gitClient)
+		worktrees, err := loadWorktreeItems(ctx, paths, registry, gitClient, githubClient)
 		if err != nil {
 			return "", err
 		}
@@ -156,6 +156,15 @@ func runShellMode(ctx context.Context) (string, error) {
 			continue
 		case "create-worktree":
 			path, err := createWorktreeForWorkspace(ctx, paths, registry, selection.SelectedWorkspace, gitClient, workspaceService, worktreeService)
+			if err != nil {
+				return "", err
+			}
+			if path != "" {
+				return path, nil
+			}
+			continue
+		case "open-pr-worktree":
+			path, err := openPullRequestWorktree(ctx, registry, selection.SelectedWorkspace, selection.SelectedBranch, gitClient, workspaceService, worktreeService)
 			if err != nil {
 				return "", err
 			}
@@ -358,6 +367,49 @@ func createWorktreeForWorkspace(ctx context.Context, paths config.Paths, registr
 		return result.Path, err
 	}
 	return result.Path, nil
+}
+
+func openPullRequestWorktree(ctx context.Context, registry config.Registry, workspaceName, branchName string, gitClient bakergit.Client, workspaceService bakerworkspace.Service, worktreeService bakerworktree.Service) (string, error) {
+	workspace, ok := findWorkspace(registry, workspaceName)
+	if !ok {
+		return "", fmt.Errorf("워크스페이스를 찾을 수 없습니다: %s", workspaceName)
+	}
+
+	syncCtx, cancel := context.WithTimeout(ctx, workspaceSyncTimeout)
+	defer cancel()
+	if err := ui.RunStatus("불러오는 중", "PR 워크트리", branchName+" 브랜치를 준비하고 있습니다...", func() error {
+		return workspaceService.Sync(syncCtx, workspace)
+	}); err != nil {
+		if errors.Is(syncCtx.Err(), context.DeadlineExceeded) {
+			return "", fmt.Errorf("%s 브랜치를 %s 안에 준비하지 못했습니다", branchName, workspaceSyncTimeout)
+		}
+		return "", err
+	}
+
+	worktrees, err := gitClient.ListWorktrees(ctx, workspace.RepositoryPath)
+	if err == nil {
+		for _, worktree := range worktrees {
+			if worktree.BranchName == branchName {
+				return worktree.Path, nil
+			}
+		}
+	}
+
+	branches, err := gitClient.ListBranches(ctx, workspace.RepositoryPath)
+	if err != nil {
+		return "", err
+	}
+	for _, branch := range branches {
+		if branch.Name == branchName {
+			result, err := worktreeService.CreateFromExistingBranch(ctx, workspace, branches, branchName, worktreeNameForBranch(branchName))
+			if err != nil {
+				return "", err
+			}
+			return result.Path, nil
+		}
+	}
+
+	return "", fmt.Errorf("PR 브랜치를 찾을 수 없습니다: %s", branchName)
 }
 
 func deleteSelectedWorktree(ctx context.Context, paths config.Paths, registry config.Registry, selection ui.Model, worktreeService bakerworktree.Service) error {
@@ -587,7 +639,7 @@ func worktreeNameForBranch(branch string) string {
 	return strings.NewReplacer("/", "-", `\\`, "-").Replace(branch)
 }
 
-func loadWorktreeItems(ctx context.Context, paths config.Paths, registry config.Registry, gitClient bakergit.Client) ([]ui.WorktreeItem, error) {
+func loadWorktreeItems(ctx context.Context, paths config.Paths, registry config.Registry, gitClient bakergit.Client, githubClient bakergithub.Client) ([]ui.WorktreeItem, error) {
 	type workspaceItems struct {
 		name  string
 		items []ui.WorktreeItem
@@ -610,6 +662,7 @@ func loadWorktreeItems(ctx context.Context, paths config.Paths, registry config.
 		}
 
 		items := make([]ui.WorktreeItem, 0, len(gitWorktrees)+1)
+		branchesWithWorktrees := make(map[string]struct{}, len(gitWorktrees))
 		for _, worktree := range gitWorktrees {
 			if !strings.HasPrefix(filepath.Clean(worktree.Path), filepath.Clean(workspaceRoot)+string(filepath.Separator)) {
 				continue
@@ -621,9 +674,30 @@ func loadWorktreeItems(ctx context.Context, paths config.Paths, registry config.
 				BranchName:    worktree.BranchName,
 				Selectable:    true,
 			})
+			if worktree.BranchName != "" {
+				branchesWithWorktrees[worktree.BranchName] = struct{}{}
+			}
 		}
 
 		sort.Slice(items, func(i, j int) bool { return items[i].WorktreeName < items[j].WorktreeName })
+
+		prs, err := githubClient.ListMyPullRequestsForRepository(ctx, workspace.Owner, workspace.Repo)
+		if err != nil {
+			return nil, err
+		}
+		for _, pr := range prs {
+			if _, exists := branchesWithWorktrees[pr.HeadRefName]; exists {
+				continue
+			}
+			items = append(items, ui.WorktreeItem{
+				WorkspaceName:     workspace.Name,
+				BranchName:        pr.HeadRefName,
+				Selectable:        true,
+				PullRequestNumber: pr.Number,
+				PullRequestTitle:  pr.Title,
+			})
+		}
+
 		groups = append(groups, workspaceItems{name: workspace.Name, items: items})
 	}
 
@@ -633,7 +707,11 @@ func loadWorktreeItems(ctx context.Context, paths config.Paths, registry config.
 	for _, group := range groups {
 		worktrees = append(worktrees, ui.WorktreeItem{Label: "▾ " + group.name, WorkspaceName: group.name})
 		for i, item := range group.items {
-			item.Label = worktreeLabel(item.WorktreeName, i == len(group.items)-1)
+			if item.PullRequestNumber > 0 {
+				item.Label = pullRequestLabel(item.PullRequestNumber, item.PullRequestTitle, i == len(group.items)-1)
+			} else {
+				item.Label = worktreeLabel(item.WorktreeName, i == len(group.items)-1)
+			}
 			worktrees = append(worktrees, item)
 		}
 	}
@@ -646,6 +724,14 @@ func worktreeLabel(worktreeName string, last bool) string {
 		connector = "└─"
 	}
 	return "  " + connector + " " + worktreeName
+}
+
+func pullRequestLabel(number int, title string, last bool) string {
+	connector := "├─"
+	if last {
+		connector = "└─"
+	}
+	return fmt.Sprintf("  %s PR #%d %s", connector, number, title)
 }
 
 func managedWorkspaceRoot(worktreesRoot, workspaceName string) (string, bool) {

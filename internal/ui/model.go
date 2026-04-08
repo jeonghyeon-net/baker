@@ -21,12 +21,14 @@ const (
 const NewBranchOption = "+ 새 브랜치 만들기"
 
 type WorktreeItem struct {
-	Label         string
-	Path          string
-	WorkspaceName string
-	WorktreeName  string
-	BranchName    string
-	Selectable    bool
+	Label             string
+	Path              string
+	WorkspaceName     string
+	WorktreeName      string
+	BranchName        string
+	Selectable        bool
+	PullRequestNumber int
+	PullRequestTitle  string
 }
 
 type State struct {
@@ -133,14 +135,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 				case "d":
 					if item, ok := m.currentWorktreeItem(); ok {
-						if item.Selectable {
+						if item.Selectable && item.Path != "" {
 							m.SelectedAction = "delete-worktree"
 							m.SelectedWorkspace = item.WorkspaceName
 							m.SelectedPath = item.Path
 							m.SelectedBranch = item.BranchName
 							return m, tea.Quit
 						}
-						if item.WorkspaceName != "" {
+						if !item.Selectable && item.WorkspaceName != "" {
 							m.SelectedAction = "delete-workspace"
 							m.SelectedWorkspace = item.WorkspaceName
 							return m, tea.Quit
@@ -207,6 +209,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			default:
 				if item, ok := m.currentWorktreeItem(); ok && item.Selectable {
+					if item.PullRequestNumber > 0 {
+						m.SelectedAction = "open-pr-worktree"
+						m.SelectedWorkspace = item.WorkspaceName
+						m.SelectedBranch = item.BranchName
+						return m, tea.Quit
+					}
 					m.SelectedPath = item.Path
 					return m, tea.Quit
 				}
@@ -328,6 +336,14 @@ func (m Model) worktreeScreenHint() string {
 		return renderActionPanel([]string{"a  워크스페이스 추가", "← →  워크스페이스 이동", "esc  종료"})
 	}
 	if item.Selectable {
+		if item.PullRequestNumber > 0 {
+			return renderActionPanel([]string{
+				"enter  PR 워크트리 만들기/열기",
+				"← →  워크스페이스 이동",
+				fmt.Sprintf("c  %s에 새 워크트리 만들기", item.WorkspaceName),
+				"esc  종료",
+			})
+		}
 		return renderActionPanel([]string{
 			"enter  현재 워크트리 열기",
 			"← →  워크스페이스 이동",

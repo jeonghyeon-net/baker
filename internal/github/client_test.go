@@ -155,3 +155,34 @@ func TestClientListRepositoriesUsesConfiguredLimit(t *testing.T) {
 		}
 	}
 }
+
+func TestClientListMyPullRequestsForRepositoryFiltersCrossRepositoryAndSortsByUpdatedAt(t *testing.T) {
+	runner := &fakeRunner{lookup: map[string]internalexec.Result{
+		"gh\x00pr\x00list\x00--repo\x00creatrip/admin\x00--author\x00@me\x00--state\x00open\x00--json\x00number,title,headRefName,updatedAt,isDraft,isCrossRepository": {
+			Stdout: `[
+				{"number":11,"title":"older pr","headRefName":"feature/older","updatedAt":"2024-01-01T00:00:00Z","isDraft":false,"isCrossRepository":false},
+				{"number":12,"title":"fork pr","headRefName":"feature/fork","updatedAt":"2025-04-01T00:00:00Z","isDraft":false,"isCrossRepository":true},
+				{"number":13,"title":"new pr","headRefName":"feature/new","updatedAt":"2025-05-01T00:00:00Z","isDraft":true,"isCrossRepository":false}
+			]`,
+		},
+	}}
+	client := Client{Runner: runner}
+
+	prs, err := client.ListMyPullRequestsForRepository(context.Background(), "creatrip", "admin")
+	if err != nil {
+		t.Fatalf("ListMyPullRequestsForRepository returned error: %v", err)
+	}
+
+	expected := []domain.GitHubPullRequest{
+		{Number: 13, Title: "new pr", HeadRefName: "feature/new", UpdatedAt: "2025-05-01T00:00:00Z", IsDraft: true},
+		{Number: 11, Title: "older pr", HeadRefName: "feature/older", UpdatedAt: "2024-01-01T00:00:00Z", IsDraft: false},
+	}
+	if len(prs) != len(expected) {
+		t.Fatalf("expected %d prs, got %d (%#v)", len(expected), len(prs), prs)
+	}
+	for i := range expected {
+		if prs[i] != expected[i] {
+			t.Fatalf("pr %d = %#v, want %#v", i, prs[i], expected[i])
+		}
+	}
+}

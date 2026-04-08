@@ -32,3 +32,12 @@ type GitHubRepo struct {
 	SSHURL        string `json:"ssh_url"`
 	DefaultBranch string `json:"default_branch"`
 }
+
+type GitHubPullRequest struct {
+	Number            int    `json:"number"`
+	Title             string `json:"title"`
+	HeadRefName       string `json:"head_ref_name"`
+	UpdatedAt         string `json:"updated_at"`
+	IsDraft           bool   `json:"is_draft"`
+	IsCrossRepository bool   `json:"is_cross_repository"`
+}
