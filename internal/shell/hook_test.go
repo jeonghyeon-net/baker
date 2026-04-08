@@ -8,16 +8,10 @@ import (
 )
 
 func TestDetect(t *testing.T) {
-	tests := []struct {
-		shellPath string
-		home      string
-		wantName  string
-		wantRC    string
-	}{
+	tests := []struct{ shellPath, home, wantName, wantRC string }{
 		{shellPath: "/bin/zsh", home: "/Users/me", wantName: "zsh", wantRC: "/Users/me/.zshrc"},
 		{shellPath: "/bin/bash", home: "/Users/me", wantName: "bash", wantRC: "/Users/me/.bashrc"},
 	}
-
 	for _, tt := range tests {
 		gotName, gotRC, err := Detect(tt.shellPath, tt.home)
 		if err != nil {
@@ -31,27 +25,50 @@ func TestDetect(t *testing.T) {
 
 func TestInstallHookIsIdempotent(t *testing.T) {
 	rcPath := filepath.Join(t.TempDir(), ".zshrc")
+	for range 2 {
+		if err := InstallHook(rcPath, "zsh"); err != nil {
+			t.Fatalf("InstallHook() error = %v", err)
+		}
+	}
+	content := readHookFile(t, rcPath)
+	if strings.Count(content, hookStart) != 1 || strings.Count(content, hookEnd) != 1 {
+		t.Fatalf("managed block markers = (%d, %d), want (1, 1)", strings.Count(content, hookStart), strings.Count(content, hookEnd))
+	}
+	assertHookContent(t, content)
+}
 
-	if err := InstallHook(rcPath, "zsh"); err != nil {
+func TestInstallHookRepairsPartialManagedBlock(t *testing.T) {
+	rcPath := filepath.Join(t.TempDir(), ".bashrc")
+	if err := os.WriteFile(rcPath, []byte("export PATH=/tmp/bin\n\n"+hookStart+"\npartial\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	if err := InstallHook(rcPath, "bash"); err != nil {
 		t.Fatalf("InstallHook() error = %v", err)
 	}
-	if err := InstallHook(rcPath, "zsh"); err != nil {
-		t.Fatalf("InstallHook() second call error = %v", err)
+	content := readHookFile(t, rcPath)
+	if strings.Count(content, hookStart) != 1 || strings.Count(content, hookEnd) != 1 {
+		t.Fatalf("managed block markers = (%d, %d), want (1, 1)", strings.Count(content, hookStart), strings.Count(content, hookEnd))
 	}
+	assertHookContent(t, content)
+}
 
+func readHookFile(t *testing.T, rcPath string) string {
+	t.Helper()
 	data, err := os.ReadFile(rcPath)
 	if err != nil {
 		t.Fatalf("ReadFile() error = %v", err)
 	}
-	content := string(data)
+	return string(data)
+}
 
-	if strings.Count(content, "# >>> baker initialize >>>") != 1 {
-		t.Fatalf("hook block count = %d, want 1", strings.Count(content, "# >>> baker initialize >>>"))
+func assertHookContent(t *testing.T, content string) {
+	t.Helper()
+	for _, want := range []string{"baker()", "local baker_result_file baker_status baker_target", "command baker __shell --result-file \"$baker_result_file\" \"$@\""} {
+		if !strings.Contains(content, want) {
+			t.Fatalf("hook content missing %q", want)
+		}
 	}
-	if !strings.Contains(content, "baker()") {
-		t.Fatal("hook content missing baker shell function")
-	}
-	if !strings.Contains(content, "command baker __shell --result-file") {
-		t.Fatal("hook content missing __shell invocation")
+	if strings.Contains(content, "|| true") {
+		t.Fatal("hook content should propagate cd failures")
 	}
 }
