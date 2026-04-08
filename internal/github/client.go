@@ -27,7 +27,67 @@ func (defaultRunner) Run(ctx context.Context, name string, args ...string) (inte
 }
 
 func (c Client) ListRepositories(ctx context.Context) ([]domain.GitHubRepo, error) {
-	result, err := c.runner().Run(ctx, "gh", "repo", "list", "--limit", strconv.Itoa(c.repositoryListLimit()), "--json", "nameWithOwner,sshUrl,defaultBranchRef")
+	owners, err := c.listOwners(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	seen := make(map[string]struct{})
+	var repos []domain.GitHubRepo
+	for _, owner := range owners {
+		ownerRepos, err := c.listRepositoriesForOwner(ctx, owner)
+		if err != nil {
+			return nil, err
+		}
+		for _, repo := range ownerRepos {
+			if _, exists := seen[repo.NameWithOwner]; exists {
+				continue
+			}
+			seen[repo.NameWithOwner] = struct{}{}
+			repos = append(repos, repo)
+		}
+	}
+
+	return repos, nil
+}
+
+func (c Client) listOwners(ctx context.Context) ([]string, error) {
+	userResult, err := c.runner().Run(ctx, "gh", "api", "user")
+	if err != nil {
+		return nil, err
+	}
+	var user struct {
+		Login string `json:"login"`
+	}
+	if err := json.Unmarshal([]byte(userResult.Stdout), &user); err != nil {
+		return nil, err
+	}
+
+	orgsResult, err := c.runner().Run(ctx, "gh", "api", "user/orgs", "--paginate")
+	if err != nil {
+		return nil, err
+	}
+	var orgs []struct {
+		Login string `json:"login"`
+	}
+	if err := json.Unmarshal([]byte(orgsResult.Stdout), &orgs); err != nil {
+		return nil, err
+	}
+
+	owners := make([]string, 0, 1+len(orgs))
+	if user.Login != "" {
+		owners = append(owners, user.Login)
+	}
+	for _, org := range orgs {
+		if org.Login != "" {
+			owners = append(owners, org.Login)
+		}
+	}
+	return owners, nil
+}
+
+func (c Client) listRepositoriesForOwner(ctx context.Context, owner string) ([]domain.GitHubRepo, error) {
+	result, err := c.runner().Run(ctx, "gh", "repo", "list", owner, "--limit", strconv.Itoa(c.repositoryListLimit()), "--json", "nameWithOwner,sshUrl,defaultBranchRef")
 	if err != nil {
 		return nil, err
 	}
