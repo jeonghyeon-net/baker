@@ -249,8 +249,6 @@ func renderTreeLine(item WorktreeItem, selected bool) string {
 	if !item.Selectable {
 		textStyle = workspaceStyle
 		meta = "workspace"
-	} else if item.BranchName != "" {
-		meta = "branch " + item.BranchName
 	}
 
 	if selected {
@@ -316,8 +314,8 @@ func (m Model) currentSelectionSummary() string {
 		if name == "" {
 			name = strings.TrimSpace(strings.TrimLeft(item.Label, "├└─ "))
 		}
-		if item.BranchName != "" {
-			return fmt.Sprintf("worktree %s • branch %s", name, item.BranchName)
+		if shouldShowBranchDetail(item.WorktreeName, item.BranchName) {
+			return fmt.Sprintf("worktree %s • %s", name, item.BranchName)
 		}
 		return fmt.Sprintf("worktree %s", name)
 	}
@@ -325,6 +323,17 @@ func (m Model) currentSelectionSummary() string {
 		return fmt.Sprintf("workspace %s", item.WorkspaceName)
 	}
 	return "Workspace tree"
+}
+
+func shouldShowBranchDetail(worktreeName, branchName string) bool {
+	if worktreeName == "" || branchName == "" {
+		return false
+	}
+	if worktreeName == branchName {
+		return false
+	}
+	normalizedBranch := strings.NewReplacer("/", "-", `\\`, "-").Replace(branchName)
+	return normalizedBranch != worktreeName
 }
 
 func (m Model) moveCursor(delta int) Model {
