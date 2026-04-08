@@ -43,22 +43,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case tea.KeyCtrlC, tea.KeyEsc:
 			return m, tea.Quit
 		case tea.KeyRunes:
-			switch msg.String() {
-			case "q":
+			if msg.String() == "q" {
 				return m, tea.Quit
-			case "c":
-				m.Screen = ScreenCreateWorktree
-				m.Cursor = 0
-				return m, nil
-			case "g":
-				m.Screen = ScreenWorkspaceGitHubPicker
-				m.Cursor = 0
-				return m, nil
-			case "d":
-				m.Screen = ScreenDeleteConfirm
-				m.DeleteModes = []string{"worktree-only", "worktree-and-local-branch", "worktree-local-and-remote-branch"}
-				m.Cursor = 0
-				return m, nil
 			}
 		case tea.KeyUp:
 			if m.Cursor > 0 {
@@ -110,7 +96,7 @@ func (m Model) View() string {
 	items := m.currentItems()
 	if len(items) == 0 {
 		if m.Screen == ScreenWorktrees {
-			return "No worktrees\n\nKeys: enter open, g GitHub workspace picker, c create worktree, d delete flow, q quit"
+			return "No worktrees"
 		}
 		return "No items"
 	}
