@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"context"
 	"flag"
 	"fmt"
@@ -127,7 +126,7 @@ func runShellMode(ctx context.Context) (string, error) {
 		return "", err
 	}
 
-	action, err := promptMainAction(len(worktrees) > 0)
+	action, err := runMainMenu(len(worktrees) > 0)
 	if err != nil {
 		return "", err
 	}
@@ -139,55 +138,29 @@ func runShellMode(ctx context.Context) (string, error) {
 			return "", nil
 		}
 		return runWorktreeSelection(worktrees)
-	case "create":
+	case "create", "create-workspace-github":
 		return createInitialWorktree(ctx, paths, registry)
 	default:
 		return "", nil
 	}
 }
 
-func promptMainAction(hasWorktrees bool) (string, error) {
-	reader := bufio.NewReader(os.Stdin)
-
-	fmt.Println("baker")
-	fmt.Println("=====")
+func runMainMenu(hasWorktrees bool) (string, error) {
+	actions := []string{"create-workspace-github", "quit"}
 	if hasWorktrees {
-		fmt.Println("1. 기존 worktree 열기")
-		fmt.Println("2. GitHub 저장소로 worktree 생성")
-		fmt.Println("q. 종료")
-	} else {
-		fmt.Println("1. GitHub 저장소로 worktree 생성")
-		fmt.Println("q. 종료")
+		actions = []string{"open", "create-workspace-github", "quit"}
 	}
-	fmt.Print("> ")
 
-	input, err := reader.ReadString('\n')
+	finalModel, err := tea.NewProgram(ui.NewModel(ui.State{Screen: ui.ScreenMainMenu, Actions: actions})).Run()
 	if err != nil {
 		return "", err
 	}
-	choice := strings.TrimSpace(input)
 
-	if hasWorktrees {
-		switch choice {
-		case "1":
-			return "open", nil
-		case "2":
-			return "create", nil
-		case "q", "quit", "":
-			return "quit", nil
-		default:
-			return "quit", nil
-		}
+	selected, ok := finalModel.(ui.Model)
+	if !ok {
+		return "", fmt.Errorf("unexpected ui model type %T", finalModel)
 	}
-
-	switch choice {
-	case "1":
-		return "create", nil
-	case "q", "quit", "":
-		return "quit", nil
-	default:
-		return "quit", nil
-	}
+	return selected.SelectedAction, nil
 }
 
 func runWorktreeSelection(worktrees []string) (string, error) {

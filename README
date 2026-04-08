@@ -36,7 +36,7 @@ Baker는 두 단계의 객체를 관리한다.
 
 - zsh / bash shell integration
 - shell hook 자동 설치
-- 간단한 메인 메뉴
+- 화살표 키와 Enter로 조작하는 TUI 메인 메뉴
 - 기존 worktree를 고르는 터미널 UI
 - 생성 모드에서만 진입하는 `gh repo list` 기반 GitHub 저장소 선택
 - 선택한 저장소로부터 workspace + 초기 worktree 자동 생성
@@ -49,8 +49,8 @@ Baker는 두 단계의 객체를 관리한다.
 2. shell hook이 설치되어 있지 않으면 ~/.zshrc 또는 ~/.bashrc에 hook을 기록
 3. `source ~/.zshrc` 또는 `source ~/.bashrc` 실행
 4. 다시 `baker` 실행
-5. 메인 메뉴가 뜬다.
-6. 기존 worktree 열기를 고르면:
+5. TUI 메인 메뉴가 뜬다.
+6. 화살표 키와 Enter로 기존 worktree 열기를 고르면:
    - 관리 중인 worktree 목록을 보여준다.
    - 선택한 worktree 경로를 shell에 돌려준다.
 7. GitHub 저장소로 worktree 생성을 고르면:

@@ -6,6 +6,17 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
+func TestEnterSelectsHighlightedMainMenuAction(t *testing.T) {
+	model := NewModel(State{Screen: ScreenMainMenu, Actions: []string{"open", "create-workspace-github", "quit"}, Cursor: 1})
+
+	next, _ := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated := next.(Model)
+
+	if updated.SelectedAction != "create-workspace-github" {
+		t.Fatalf("SelectedAction = %q", updated.SelectedAction)
+	}
+}
+
 func TestEnterSelectsHighlightedWorktree(t *testing.T) {
 	model := NewModel(State{
 		Screen:    ScreenWorktrees,
