@@ -1,3 +1,8 @@
 Baker is a terminal app for managing git workspaces and worktrees.
 
 This repository intentionally uses a plain-text README file named README, not README.md.
+
+Shell integration:
+- First run installs a shell wrapper into ~/.zshrc or ~/.bashrc.
+- After installation, run `source ~/.zshrc` or `source ~/.bashrc` in the current shell.
+- The wrapper calls `baker __shell --result-file <tmpfile>` and changes directory after the TUI returns a target path.
