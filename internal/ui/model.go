@@ -57,7 +57,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case tea.KeyEnter:
 			switch m.Screen {
-			case ScreenDeleteConfirm, ScreenWorkspaceGitHubPicker, ScreenCreateWorktree:
+			case ScreenWorkspaceGitHubPicker:
+				if len(m.Repositories) > 0 {
+					m.SelectedPath = m.Repositories[clampIndex(m.Cursor, len(m.Repositories))]
+					return m, tea.Quit
+				}
+				return m, nil
+			case ScreenCreateWorktree, ScreenDeleteConfirm:
 				return m, nil
 			default:
 				if len(m.Actions) > 0 {

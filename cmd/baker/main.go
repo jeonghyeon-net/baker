@@ -12,8 +12,13 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/jeonghyeon-net/baker/internal/app"
 	"github.com/jeonghyeon-net/baker/internal/config"
+	"github.com/jeonghyeon-net/baker/internal/domain"
+	bakergit "github.com/jeonghyeon-net/baker/internal/git"
+	bakergithub "github.com/jeonghyeon-net/baker/internal/github"
 	bakershell "github.com/jeonghyeon-net/baker/internal/shell"
 	"github.com/jeonghyeon-net/baker/internal/ui"
+	bakerworkspace "github.com/jeonghyeon-net/baker/internal/workspace"
+	bakerworktree "github.com/jeonghyeon-net/baker/internal/worktree"
 )
 
 type bootstrapShell struct{}
@@ -69,7 +74,7 @@ func main() {
 		resultFile := shellFlags.String("result-file", "", "path to shell result file")
 		_ = shellFlags.Parse(os.Args[2:])
 
-		selectedPath, err := runShellMode()
+		selectedPath, err := runShellMode(context.Background())
 		if err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
@@ -93,7 +98,7 @@ func main() {
 		return
 	}
 	if result.Mode == app.ModeInteractive {
-		selectedPath, err := runShellMode()
+		selectedPath, err := runShellMode(context.Background())
 		if err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
@@ -104,21 +109,31 @@ func main() {
 	}
 }
 
-func runShellMode() (string, error) {
+func runShellMode(ctx context.Context) (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", err
 	}
 
 	paths := config.DefaultPaths(home)
-	worktrees, err := loadWorktreePaths(paths)
+	registry, err := config.LoadRegistry(paths.RegistryFile)
 	if err != nil {
 		return "", err
 	}
 
-	model := ui.NewModel(ui.State{Screen: ui.ScreenWorktrees, Worktrees: worktrees})
-	program := tea.NewProgram(model)
-	finalModel, err := program.Run()
+	worktrees, err := loadWorktreePaths(paths, registry)
+	if err != nil {
+		return "", err
+	}
+	if len(worktrees) > 0 {
+		return runWorktreeSelection(worktrees)
+	}
+
+	return createInitialWorktree(ctx, paths, registry)
+}
+
+func runWorktreeSelection(worktrees []string) (string, error) {
+	finalModel, err := tea.NewProgram(ui.NewModel(ui.State{Screen: ui.ScreenWorktrees, Worktrees: worktrees})).Run()
 	if err != nil {
 		return "", err
 	}
@@ -130,12 +145,137 @@ func runShellMode() (string, error) {
 	return selected.SelectedPath, nil
 }
 
-func loadWorktreePaths(paths config.Paths) ([]string, error) {
-	registry, err := config.LoadRegistry(paths.RegistryFile)
+func createInitialWorktree(ctx context.Context, paths config.Paths, registry config.Registry) (string, error) {
+	githubClient := bakergithub.Client{}
+	repos, err := githubClient.ListRepositories(ctx)
+	if err != nil {
+		return "", err
+	}
+	if len(repos) == 0 {
+		return "", nil
+	}
+
+	selectedRepo, err := runRepositorySelection(repos)
+	if err != nil || selectedRepo == nil {
+		return "", err
+	}
+
+	gitClient := bakergit.Client{}
+	workspaceService := bakerworkspace.Service{Git: gitClient, Paths: paths}
+	worktreeService := bakerworktree.Service{Git: gitClient, Paths: paths}
+
+	workspace, updatedRegistry, err := ensureWorkspace(ctx, paths, registry, workspaceService, *selectedRepo)
+	if err != nil {
+		return "", err
+	}
+	if err := config.SaveRegistry(paths.RegistryFile, updatedRegistry); err != nil {
+		return "", err
+	}
+	if err := workspaceService.Sync(ctx, workspace); err != nil {
+		return "", err
+	}
+
+	branches, err := gitClient.ListBranches(ctx, workspace.RepositoryPath)
+	if err != nil {
+		return "", err
+	}
+	branchName := defaultBranchName(*selectedRepo, workspace, branches)
+	if branchName == "" {
+		return "", fmt.Errorf("no branches available for %s", selectedRepo.NameWithOwner)
+	}
+
+	result, err := worktreeService.CreateFromExistingBranch(ctx, workspace, branches, branchName, worktreeNameForBranch(branchName))
+	if err != nil {
+		return "", err
+	}
+	return result.Path, nil
+}
+
+func runRepositorySelection(repos []domain.GitHubRepo) (*domain.GitHubRepo, error) {
+	names := make([]string, 0, len(repos))
+	for _, repo := range repos {
+		names = append(names, repo.NameWithOwner)
+	}
+
+	finalModel, err := tea.NewProgram(ui.NewModel(ui.State{Screen: ui.ScreenWorkspaceGitHubPicker, Repositories: names})).Run()
 	if err != nil {
 		return nil, err
 	}
 
+	selected, ok := finalModel.(ui.Model)
+	if !ok {
+		return nil, fmt.Errorf("unexpected ui model type %T", finalModel)
+	}
+	if selected.SelectedPath == "" {
+		return nil, nil
+	}
+
+	for _, repo := range repos {
+		if repo.NameWithOwner == selected.SelectedPath {
+			return &repo, nil
+		}
+	}
+	return nil, fmt.Errorf("selected repository not found: %s", selected.SelectedPath)
+}
+
+func ensureWorkspace(ctx context.Context, paths config.Paths, registry config.Registry, workspaceService bakerworkspace.Service, repo domain.GitHubRepo) (domain.Workspace, config.Registry, error) {
+	suggestedName := strings.ReplaceAll(repo.NameWithOwner, "/", "-")
+	for i, workspace := range registry.Workspaces {
+		if workspace.RemoteURL == repo.SSHURL || workspace.Owner+"/"+workspace.Repo == repo.NameWithOwner {
+			if workspace.DefaultBranch == "" && repo.DefaultBranch != "" {
+				registry.Workspaces[i].DefaultBranch = repo.DefaultBranch
+				workspace = registry.Workspaces[i]
+			}
+			return workspace, registry, nil
+		}
+	}
+
+	workspaceName := uniqueWorkspaceName(registry.Workspaces, suggestedName)
+	workspace, err := workspaceService.CreateFromGitHubRepo(ctx, repo, workspaceName)
+	if err != nil {
+		return domain.Workspace{}, registry, err
+	}
+	registry.Workspaces = append(registry.Workspaces, workspace)
+	return workspace, registry, nil
+}
+
+func uniqueWorkspaceName(workspaces []domain.Workspace, suggestedName string) string {
+	used := make(map[string]struct{}, len(workspaces))
+	for _, workspace := range workspaces {
+		used[workspace.Name] = struct{}{}
+	}
+	if _, exists := used[suggestedName]; !exists {
+		return suggestedName
+	}
+	for i := 2; ; i++ {
+		candidate := fmt.Sprintf("%s-%d", suggestedName, i)
+		if _, exists := used[candidate]; !exists {
+			return candidate
+		}
+	}
+}
+
+func defaultBranchName(repo domain.GitHubRepo, workspace domain.Workspace, branches []domain.BranchRef) string {
+	for _, candidate := range []string{repo.DefaultBranch, workspace.DefaultBranch} {
+		if candidate != "" {
+			for _, branch := range branches {
+				if branch.Name == candidate {
+					return candidate
+				}
+			}
+		}
+	}
+	if len(branches) > 0 {
+		return branches[0].Name
+	}
+	return ""
+}
+
+func worktreeNameForBranch(branch string) string {
+	return strings.NewReplacer("/", "-", `\\`, "-").Replace(branch)
+}
+
+func loadWorktreePaths(paths config.Paths, registry config.Registry) ([]string, error) {
 	var worktrees []string
 	for _, workspace := range registry.Workspaces {
 		workspaceRoot, ok := managedWorkspaceRoot(paths.WorktreesRoot, workspace.Name)
