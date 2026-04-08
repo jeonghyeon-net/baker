@@ -7,6 +7,7 @@ import (
 
 	"github.com/jeonghyeon-net/baker/internal/domain"
 	internalexec "github.com/jeonghyeon-net/baker/internal/exec"
+	"golang.org/x/sync/errgroup"
 )
 
 type Runner interface {
@@ -32,13 +33,26 @@ func (c Client) ListRepositories(ctx context.Context) ([]domain.GitHubRepo, erro
 		return nil, err
 	}
 
+	reposByOwner := make([][]domain.GitHubRepo, len(owners))
+	group, groupCtx := errgroup.WithContext(ctx)
+	for i, owner := range owners {
+		i, owner := i, owner
+		group.Go(func() error {
+			ownerRepos, err := c.listRepositoriesForOwner(groupCtx, owner)
+			if err != nil {
+				return err
+			}
+			reposByOwner[i] = ownerRepos
+			return nil
+		})
+	}
+	if err := group.Wait(); err != nil {
+		return nil, err
+	}
+
 	seen := make(map[string]struct{})
 	var repos []domain.GitHubRepo
-	for _, owner := range owners {
-		ownerRepos, err := c.listRepositoriesForOwner(ctx, owner)
-		if err != nil {
-			return nil, err
-		}
+	for _, ownerRepos := range reposByOwner {
 		for _, repo := range ownerRepos {
 			if _, exists := seen[repo.NameWithOwner]; exists {
 				continue

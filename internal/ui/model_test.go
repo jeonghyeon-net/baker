@@ -63,6 +63,27 @@ func TestDeleteShortcutSelectsDeleteActionFromWorktree(t *testing.T) {
 	}
 }
 
+func TestDeleteShortcutSelectsDeleteWorkspaceActionFromWorkspaceHeader(t *testing.T) {
+	model := NewModel(State{
+		Screen: ScreenWorktrees,
+		Worktrees: []WorktreeItem{
+			{Label: "baker", WorkspaceName: "baker"},
+			{Label: "  main", WorkspaceName: "baker", Path: "/tmp/baker/main", BranchName: "main", Selectable: true},
+		},
+		Cursor: 0,
+	})
+
+	next, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'d'}})
+	updated := next.(Model)
+
+	if updated.SelectedAction != "delete-workspace" {
+		t.Fatalf("SelectedAction = %q", updated.SelectedAction)
+	}
+	if updated.SelectedWorkspace != "baker" {
+		t.Fatalf("SelectedWorkspace = %q", updated.SelectedWorkspace)
+	}
+}
+
 func TestEnterSelectsHighlightedWorktree(t *testing.T) {
 	model := NewModel(State{
 		Screen: ScreenWorktrees,

@@ -2,6 +2,8 @@ package workspace
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/jeonghyeon-net/baker/internal/config"
@@ -166,5 +168,60 @@ func TestServiceSyncRejectsRepositoryPathOutsideRepositoriesRoot(t *testing.T) {
 	}
 	if gitClient.fetchAllCalls != 0 {
 		t.Fatalf("FetchAll() call count = %d, want %d", gitClient.fetchAllCalls, 0)
+	}
+}
+
+func TestServiceDeleteRemovesRepositoryAndWorkspaceWorktrees(t *testing.T) {
+	root := t.TempDir()
+	service := Service{
+		Git:   &fakeGitClient{},
+		Paths: config.DefaultPaths(root),
+	}
+	workspace := domain.Workspace{
+		Name:           "jeonghyeon-net-baker",
+		RepositoryPath: filepath.Join(root, ".pi", "repositories", "jeonghyeon-net-baker"),
+	}
+	worktreePath := filepath.Join(root, ".pi", "worktrees", "jeonghyeon-net-baker", "main")
+
+	if err := os.MkdirAll(workspace.RepositoryPath, 0o755); err != nil {
+		t.Fatalf("MkdirAll(repository) error = %v", err)
+	}
+	if err := os.MkdirAll(worktreePath, 0o755); err != nil {
+		t.Fatalf("MkdirAll(worktree) error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(workspace.RepositoryPath, "config"), []byte("bare"), 0o644); err != nil {
+		t.Fatalf("WriteFile(repository) error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(worktreePath, "README"), []byte("worktree"), 0o644); err != nil {
+		t.Fatalf("WriteFile(worktree) error = %v", err)
+	}
+
+	if err := service.Delete(workspace); err != nil {
+		t.Fatalf("Delete() error = %v", err)
+	}
+	if _, err := os.Stat(workspace.RepositoryPath); !os.IsNotExist(err) {
+		t.Fatalf("repository path still exists, err = %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, ".pi", "worktrees", "jeonghyeon-net-baker")); !os.IsNotExist(err) {
+		t.Fatalf("workspace worktrees path still exists, err = %v", err)
+	}
+}
+
+func TestServiceDeleteRejectsRepositoryPathOutsideRepositoriesRoot(t *testing.T) {
+	service := Service{
+		Git:   &fakeGitClient{},
+		Paths: config.DefaultPaths("/tmp"),
+	}
+	workspace := domain.Workspace{
+		Name:           "jeonghyeon-net-baker",
+		RepositoryPath: "/tmp/outside/jeonghyeon-net-baker",
+	}
+
+	err := service.Delete(workspace)
+	if err == nil {
+		t.Fatal("Delete() error = nil, want error")
+	}
+	if err.Error() != "invalid repository path: \"/tmp/outside/jeonghyeon-net-baker\"" {
+		t.Fatalf("Delete() error = %q, want %q", err.Error(), "invalid repository path: \"/tmp/outside/jeonghyeon-net-baker\"")
 	}
 }

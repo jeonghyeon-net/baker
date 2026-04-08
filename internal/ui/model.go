@@ -90,12 +90,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			case "d":
 				if m.Screen == ScreenWorktrees {
-					if item, ok := m.currentWorktreeItem(); ok && item.Selectable {
-						m.SelectedAction = "delete-worktree"
-						m.SelectedWorkspace = item.WorkspaceName
-						m.SelectedPath = item.Path
-						m.SelectedBranch = item.BranchName
-						return m, tea.Quit
+					if item, ok := m.currentWorktreeItem(); ok {
+						if item.Selectable {
+							m.SelectedAction = "delete-worktree"
+							m.SelectedWorkspace = item.WorkspaceName
+							m.SelectedPath = item.Path
+							m.SelectedBranch = item.BranchName
+							return m, tea.Quit
+						}
+						if item.WorkspaceName != "" {
+							m.SelectedAction = "delete-workspace"
+							m.SelectedWorkspace = item.WorkspaceName
+							return m, tea.Quit
+						}
 					}
 				}
 			}
@@ -174,7 +181,7 @@ func (m Model) View() string {
 			}
 			lines = append(lines, label)
 		}
-		return strings.Join(lines, "\n") + "\n\n" + metaStyle.Render("Keys: enter open, a add workspace, c create worktree, d delete worktree, q quit")
+		return strings.Join(lines, "\n") + "\n\n" + metaStyle.Render("Keys: enter open, a add workspace, c create worktree, d delete selected, q quit")
 	case ScreenOptions:
 		return renderScreen(withDefaultTitle(m.Title, "Select option"), renderList(m.Options, m.Cursor, "No options"), m.Hint)
 	case ScreenWorkspaceGitHubPicker:

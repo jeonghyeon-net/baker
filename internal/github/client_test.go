@@ -2,6 +2,8 @@ package github
 
 import (
 	"context"
+	"strings"
+	"sync"
 	"testing"
 
 	"github.com/jeonghyeon-net/baker/internal/domain"
@@ -14,15 +16,25 @@ type fakeRunnerCall struct {
 }
 
 type fakeRunner struct {
+	mu      sync.Mutex
 	results []internalexec.Result
+	lookup  map[string]internalexec.Result
 	err     error
 	calls   []fakeRunnerCall
 }
 
 func (r *fakeRunner) Run(ctx context.Context, name string, args ...string) (internalexec.Result, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
 	r.calls = append(r.calls, fakeRunnerCall{name: name, args: append([]string(nil), args...)})
 	if r.err != nil {
 		return internalexec.Result{}, r.err
+	}
+	if r.lookup != nil {
+		if result, ok := r.lookup[name+"\x00"+strings.Join(args, "\x00")]; ok {
+			return result, nil
+		}
 	}
 	if len(r.results) == 0 {
 		return internalexec.Result{}, nil
@@ -33,12 +45,12 @@ func (r *fakeRunner) Run(ctx context.Context, name string, args ...string) (inte
 }
 
 func TestClientListRepositoriesIncludesUserAndOrganizations(t *testing.T) {
-	runner := &fakeRunner{results: []internalexec.Result{
-		{Stdout: `{"login":"jeonghyeon-net"}`},
-		{Stdout: `[{"login":"creatrip"},{"login":"platform-team"}]`},
-		{Stdout: `[{"nameWithOwner":"jeonghyeon-net/baker","sshUrl":"git@github.com:jeonghyeon-net/baker.git","defaultBranchRef":{"name":"main"}}]`},
-		{Stdout: `[{"nameWithOwner":"creatrip/admin","sshUrl":"git@github.com:creatrip/admin.git","defaultBranchRef":{"name":"main"}}]`},
-		{Stdout: `[]`},
+	runner := &fakeRunner{lookup: map[string]internalexec.Result{
+		"gh\x00api\x00user":                    {Stdout: `{"login":"jeonghyeon-net"}`},
+		"gh\x00api\x00user/orgs\x00--paginate": {Stdout: `[{"login":"creatrip"},{"login":"platform-team"}]`},
+		"gh\x00repo\x00list\x00jeonghyeon-net\x00--limit\x00200\x00--json\x00nameWithOwner,sshUrl,defaultBranchRef": {Stdout: `[{"nameWithOwner":"jeonghyeon-net/baker","sshUrl":"git@github.com:jeonghyeon-net/baker.git","defaultBranchRef":{"name":"main"}}]`},
+		"gh\x00repo\x00list\x00creatrip\x00--limit\x00200\x00--json\x00nameWithOwner,sshUrl,defaultBranchRef":       {Stdout: `[{"nameWithOwner":"creatrip/admin","sshUrl":"git@github.com:creatrip/admin.git","defaultBranchRef":{"name":"main"}}]`},
+		"gh\x00repo\x00list\x00platform-team\x00--limit\x00200\x00--json\x00nameWithOwner,sshUrl,defaultBranchRef":  {Stdout: `[]`},
 	}}
 	client := Client{Runner: runner}
 
@@ -70,17 +82,14 @@ func TestClientListRepositoriesIncludesUserAndOrganizations(t *testing.T) {
 	if len(runner.calls) != len(expectedCalls) {
 		t.Fatalf("expected %d calls, got %d (%#v)", len(expectedCalls), len(runner.calls), runner.calls)
 	}
-	for i := range expectedCalls {
-		if runner.calls[i].name != expectedCalls[i].name {
-			t.Fatalf("call %d name = %q, want %q", i, runner.calls[i].name, expectedCalls[i].name)
-		}
-		if len(runner.calls[i].args) != len(expectedCalls[i].args) {
-			t.Fatalf("call %d args = %v, want %v", i, runner.calls[i].args, expectedCalls[i].args)
-		}
-		for j := range expectedCalls[i].args {
-			if runner.calls[i].args[j] != expectedCalls[i].args[j] {
-				t.Fatalf("call %d arg %d = %q, want %q", i, j, runner.calls[i].args[j], expectedCalls[i].args[j])
-			}
+	seen := make(map[string]struct{}, len(runner.calls))
+	for _, call := range runner.calls {
+		seen[call.name+"\x00"+strings.Join(call.args, "\x00")] = struct{}{}
+	}
+	for _, expectedCall := range expectedCalls {
+		key := expectedCall.name + "\x00" + strings.Join(expectedCall.args, "\x00")
+		if _, ok := seen[key]; !ok {
+			t.Fatalf("missing expected call %q %v (seen=%#v)", expectedCall.name, expectedCall.args, runner.calls)
 		}
 	}
 }

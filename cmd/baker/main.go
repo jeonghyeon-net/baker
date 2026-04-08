@@ -167,6 +167,11 @@ func runShellMode(ctx context.Context) (string, error) {
 				return "", err
 			}
 			continue
+		case "delete-workspace":
+			if err := deleteSelectedWorkspace(paths, registry, selection.SelectedWorkspace, workspaceService); err != nil {
+				return "", err
+			}
+			continue
 		default:
 			return "", nil
 		}
@@ -334,6 +339,33 @@ func deleteSelectedWorktree(ctx context.Context, paths config.Paths, registry co
 		BranchName: selection.SelectedBranch,
 	}
 	return worktreeService.Delete(ctx, workspace, worktree, bakerworktree.DeleteMode(mode), true)
+}
+
+func deleteSelectedWorkspace(paths config.Paths, registry config.Registry, workspaceName string, workspaceService bakerworkspace.Service) error {
+	workspace, ok := findWorkspace(registry, workspaceName)
+	if !ok {
+		return fmt.Errorf("workspace not found: %s", workspaceName)
+	}
+
+	choice, err := runOptionSelection("Delete workspace", "This removes the bare repository and all managed worktrees", []string{"cancel", "delete workspace"})
+	if err != nil {
+		return err
+	}
+	if choice != "delete workspace" {
+		return nil
+	}
+	if err := workspaceService.Delete(workspace); err != nil {
+		return err
+	}
+
+	updatedRegistry := config.Registry{Workspaces: make([]domain.Workspace, 0, len(registry.Workspaces))}
+	for _, candidate := range registry.Workspaces {
+		if candidate.Name == workspaceName {
+			continue
+		}
+		updatedRegistry.Workspaces = append(updatedRegistry.Workspaces, candidate)
+	}
+	return config.SaveRegistry(paths.RegistryFile, updatedRegistry)
 }
 
 func runRepositorySelection(repos []domain.GitHubRepo) (*domain.GitHubRepo, error) {

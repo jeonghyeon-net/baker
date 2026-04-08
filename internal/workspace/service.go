@@ -3,6 +3,7 @@ package workspace
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -76,6 +77,37 @@ func (s Service) Sync(ctx context.Context, workspace domain.Workspace) error {
 	return s.Git.FetchAll(ctx, repositoryPath)
 }
 
+func (s Service) Delete(workspace domain.Workspace) error {
+	repositoriesRoot, err := validateRepositoriesRoot(s.Paths.RepositoriesRoot)
+	if err != nil {
+		return err
+	}
+	worktreesRoot, err := validateRoot(s.Paths.WorktreesRoot, "worktrees root")
+	if err != nil {
+		return err
+	}
+	workspaceName, err := validateWorkspaceName(workspace.Name)
+	if err != nil {
+		return err
+	}
+	repositoryPath, err := validateRepositoryPath(repositoriesRoot, workspace.RepositoryPath)
+	if err != nil {
+		return err
+	}
+	workspaceWorktreesPath, err := validateManagedPath(worktreesRoot, filepath.Join(worktreesRoot, workspaceName), "workspace worktrees path")
+	if err != nil {
+		return err
+	}
+
+	if err := os.RemoveAll(workspaceWorktreesPath); err != nil {
+		return err
+	}
+	if err := os.RemoveAll(repositoryPath); err != nil {
+		return err
+	}
+	return nil
+}
+
 func validateRepositoriesRoot(root string) (string, error) {
 	if root == "" {
 		return "", fmt.Errorf("invalid repositories root: %q", root)
@@ -103,6 +135,25 @@ func validateRepositoryPath(repositoriesRoot, repositoryPath string) (string, er
 	}
 
 	return cleanRepositoryPath, nil
+}
+
+func validateRoot(root, label string) (string, error) {
+	if root == "" || !filepath.IsAbs(root) {
+		return "", fmt.Errorf("invalid %s: %q", label, root)
+	}
+	return filepath.Clean(root), nil
+}
+
+func validateManagedPath(root, path, label string) (string, error) {
+	if !filepath.IsAbs(path) {
+		return "", fmt.Errorf("invalid %s: %q", label, path)
+	}
+	cleanPath := filepath.Clean(path)
+	rel, err := filepath.Rel(root, cleanPath)
+	if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("invalid %s: %q", label, path)
+	}
+	return cleanPath, nil
 }
 
 func validateWorkspaceName(workspaceName string) (string, error) {
