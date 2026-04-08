@@ -289,7 +289,7 @@ func renderPanel(title, subtitle, body, footer string) string {
 		sections = append(sections, body)
 	}
 	if footer != "" {
-		sections = append(sections, pillStyle.Render(footer))
+		sections = append(sections, footer)
 	}
 	return strings.Join(sections, "\n\n")
 }
@@ -318,15 +318,33 @@ func (m Model) currentSelectionSummary() string {
 func (m Model) worktreeScreenHint() string {
 	item, ok := m.currentWorktreeItem()
 	if !ok {
-		return "a 워크스페이스 추가 • esc 종료"
+		return renderActionPanel([]string{"a  워크스페이스 추가", "esc  종료"})
 	}
 	if item.Selectable {
-		return fmt.Sprintf("enter 열기 • c %s에 워크트리 생성 • d 현재 워크트리 삭제 • esc 종료", item.WorkspaceName)
+		return renderActionPanel([]string{
+			"enter  현재 워크트리 열기",
+			fmt.Sprintf("c  %s에 새 워크트리 만들기", item.WorkspaceName),
+			"d  현재 워크트리 삭제",
+			"esc  종료",
+		})
 	}
 	if item.WorkspaceName != "" {
-		return fmt.Sprintf("a 워크스페이스 추가 • c %s에 워크트리 생성 • d %s 삭제 • esc 종료", item.WorkspaceName, item.WorkspaceName)
+		return renderActionPanel([]string{
+			"a  새 워크스페이스 추가",
+			fmt.Sprintf("c  %s에 새 워크트리 만들기", item.WorkspaceName),
+			fmt.Sprintf("d  %s 삭제", item.WorkspaceName),
+			"esc  종료",
+		})
 	}
-	return "a 워크스페이스 추가 • esc 종료"
+	return renderActionPanel([]string{"a  워크스페이스 추가", "esc  종료"})
+}
+
+func renderActionPanel(lines []string) string {
+	rendered := make([]string, 0, len(lines))
+	for _, line := range lines {
+		rendered = append(rendered, pillStyle.Render(line))
+	}
+	return strings.Join(rendered, "\n")
 }
 
 func shouldShowBranchDetail(worktreeName, branchName string) bool {
