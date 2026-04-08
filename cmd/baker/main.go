@@ -121,7 +121,7 @@ func runShellMode(ctx context.Context) (string, error) {
 		return "", err
 	}
 
-	worktrees, err := loadWorktreePaths(paths, registry)
+	worktrees, err := loadWorktreeItems(paths, registry)
 	if err != nil {
 		return "", err
 	}
@@ -139,7 +139,7 @@ func runShellMode(ctx context.Context) (string, error) {
 	return "", nil
 }
 
-func runWorktreeSelection(worktrees []string) (string, string, error) {
+func runWorktreeSelection(worktrees []ui.WorktreeItem) (string, string, error) {
 	finalModel, err := tea.NewProgram(ui.NewModel(ui.State{Screen: ui.ScreenWorktrees, Worktrees: worktrees})).Run()
 	if err != nil {
 		return "", "", err
@@ -282,8 +282,13 @@ func worktreeNameForBranch(branch string) string {
 	return strings.NewReplacer("/", "-", `\\`, "-").Replace(branch)
 }
 
-func loadWorktreePaths(paths config.Paths, registry config.Registry) ([]string, error) {
-	var worktrees []string
+func loadWorktreeItems(paths config.Paths, registry config.Registry) ([]ui.WorktreeItem, error) {
+	type workspaceItems struct {
+		name  string
+		items []ui.WorktreeItem
+	}
+
+	var groups []workspaceItems
 	for _, workspace := range registry.Workspaces {
 		workspaceRoot, ok := managedWorkspaceRoot(paths.WorktreesRoot, workspace.Name)
 		if !ok {
@@ -297,14 +302,31 @@ func loadWorktreePaths(paths config.Paths, registry config.Registry) ([]string, 
 			return nil, err
 		}
 
+		var items []ui.WorktreeItem
 		for _, entry := range entries {
 			if entry.IsDir() {
-				worktrees = append(worktrees, filepath.Join(workspaceRoot, entry.Name()))
+				items = append(items, ui.WorktreeItem{
+					Label:      "  " + entry.Name(),
+					Path:       filepath.Join(workspaceRoot, entry.Name()),
+					Selectable: true,
+				})
 			}
 		}
+		if len(items) == 0 {
+			continue
+		}
+
+		sort.Slice(items, func(i, j int) bool { return items[i].Label < items[j].Label })
+		groups = append(groups, workspaceItems{name: workspace.Name, items: items})
 	}
 
-	sort.Strings(worktrees)
+	sort.Slice(groups, func(i, j int) bool { return groups[i].name < groups[j].name })
+
+	var worktrees []ui.WorktreeItem
+	for _, group := range groups {
+		worktrees = append(worktrees, ui.WorktreeItem{Label: group.name, Selectable: false})
+		worktrees = append(worktrees, group.items...)
+	}
 	return worktrees, nil
 }
 

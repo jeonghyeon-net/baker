@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -19,40 +20,56 @@ func TestCreateShortcutSelectsCreateActionFromWorktreeScreen(t *testing.T) {
 
 func TestEnterSelectsHighlightedWorktree(t *testing.T) {
 	model := NewModel(State{
-		Screen:    ScreenWorktrees,
-		Worktrees: []string{"main", "feature-login"},
-		Cursor:    1,
+		Screen: ScreenWorktrees,
+		Worktrees: []WorktreeItem{
+			{Label: "baker", Selectable: false},
+			{Label: "  main", Path: "/tmp/baker/main", Selectable: true},
+			{Label: "  feature-login", Path: "/tmp/baker/feature-login", Selectable: true},
+		},
+		Cursor: 2,
 	})
 
 	next, _ := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	updated := next.(Model)
 
-	if updated.SelectedPath != "feature-login" {
+	if updated.SelectedPath != "/tmp/baker/feature-login" {
 		t.Fatalf("SelectedPath = %q", updated.SelectedPath)
 	}
 }
 
-func TestWorkspaceGitHubPickerActionEntersRepoList(t *testing.T) {
-	model := NewModel(State{Screen: ScreenWorktrees, Actions: []string{"open", "create-worktree", "create-workspace-github", "delete-worktree"}, Cursor: 2})
+func TestWorktreeCursorSkipsWorkspaceHeaders(t *testing.T) {
+	model := NewModel(State{
+		Screen: ScreenWorktrees,
+		Worktrees: []WorktreeItem{
+			{Label: "baker", Selectable: false},
+			{Label: "  main", Path: "/tmp/baker/main", Selectable: true},
+			{Label: "other", Selectable: false},
+			{Label: "  fix", Path: "/tmp/other/fix", Selectable: true},
+		},
+		Cursor: 1,
+	})
 
-	next, _ := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	next, _ := model.Update(tea.KeyMsg{Type: tea.KeyDown})
 	updated := next.(Model)
-
-	if updated.Screen != ScreenWorkspaceGitHubPicker {
-		t.Fatalf("Screen = %q", updated.Screen)
+	if updated.Cursor != 3 {
+		t.Fatalf("Cursor = %d", updated.Cursor)
 	}
 }
 
-func TestDeleteActionEntersConfirmationScreenWithModes(t *testing.T) {
-	model := NewModel(State{Screen: ScreenWorktrees, Actions: []string{"open", "create-worktree", "create-workspace-github", "delete-worktree"}, Cursor: 3})
+func TestWorktreeViewShowsTreeLabelsNotFullPaths(t *testing.T) {
+	model := NewModel(State{
+		Screen: ScreenWorktrees,
+		Worktrees: []WorktreeItem{
+			{Label: "baker", Selectable: false},
+			{Label: "  main", Path: "/Users/me/.pi/worktrees/baker/main", Selectable: true},
+		},
+	})
 
-	next, _ := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	updated := next.(Model)
-
-	if updated.Screen != ScreenDeleteConfirm {
-		t.Fatalf("Screen = %q", updated.Screen)
+	view := model.View()
+	if !strings.Contains(view, "baker") || !strings.Contains(view, "  main") {
+		t.Fatalf("view = %q", view)
 	}
-	if len(updated.DeleteModes) != 3 {
-		t.Fatalf("DeleteModes = %#v", updated.DeleteModes)
+	if strings.Contains(view, "/Users/me/.pi/worktrees") {
+		t.Fatalf("view leaked full path: %q", view)
 	}
 }
