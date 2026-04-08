@@ -241,18 +241,18 @@ func TestMergeWorkspacePullRequestsMarksExistingWorktreesAndAppendsUnmaterialize
 		{Label: "  └─ PR 불러오는 중...", WorkspaceName: "baker", PullRequestLoading: true},
 	}
 	prItems := []WorktreeItem{
-		{WorkspaceName: "baker", Path: "/tmp/baker/feature-login", BranchName: "feature/login", PullRequestNumber: 42, PullRequestTitle: "로그인 수정", Selectable: true},
-		{WorkspaceName: "baker", BranchName: "feature/signup", PullRequestNumber: 77, PullRequestTitle: "회원가입 수정", Selectable: true},
+		{WorkspaceName: "baker", Path: "/tmp/baker/feature-login", BranchName: "feature/login", PullRequestNumber: 42, PullRequestTitle: "로그인 수정", PullRequestStatus: "승인", Selectable: true},
+		{WorkspaceName: "baker", BranchName: "feature/signup", PullRequestNumber: 77, PullRequestTitle: "회원가입 수정", PullRequestStatus: "리뷰 대기", Selectable: true},
 	}
 
 	merged := mergeWorkspacePullRequests(items, "baker", prItems)
 	if len(merged) != 4 {
 		t.Fatalf("len(merged) = %d, want 4 (%#v)", len(merged), merged)
 	}
-	if !strings.Contains(merged[2].Label, "[PR #42]") {
+	if !strings.Contains(merged[2].Label, "[PR #42]") || !strings.Contains(merged[2].Label, "[승인]") {
 		t.Fatalf("existing worktree label = %q", merged[2].Label)
 	}
-	if merged[3].PullRequestNumber != 77 || !strings.Contains(merged[3].Label, "PR #77") {
+	if merged[3].PullRequestNumber != 77 || !strings.Contains(merged[3].Label, "PR #77") || !strings.Contains(merged[3].Label, "[리뷰 대기]") {
 		t.Fatalf("unmaterialized pr row = %#v", merged[3])
 	}
 }

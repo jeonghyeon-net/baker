@@ -41,6 +41,7 @@ type ghPullRequest struct {
 	HeadRefName       string `json:"headRefName"`
 	UpdatedAt         string `json:"updatedAt"`
 	IsDraft           bool   `json:"isDraft"`
+	ReviewDecision    string `json:"reviewDecision"`
 	IsCrossRepository bool   `json:"isCrossRepository"`
 }
 
@@ -57,7 +58,7 @@ func (c Client) ListRepositoriesForOwner(ctx context.Context, owner string) ([]d
 }
 
 func (c Client) ListMyPullRequestsForRepository(ctx context.Context, owner, repo string) ([]domain.GitHubPullRequest, error) {
-	result, err := c.runner().Run(ctx, "gh", "pr", "list", "--repo", owner+"/"+repo, "--author", "@me", "--state", "open", "--json", "number,title,headRefName,updatedAt,isDraft,isCrossRepository")
+	result, err := c.runner().Run(ctx, "gh", "pr", "list", "--repo", owner+"/"+repo, "--author", "@me", "--state", "open", "--json", "number,title,headRefName,updatedAt,isDraft,reviewDecision,isCrossRepository")
 	if err != nil {
 		return nil, err
 	}
@@ -82,6 +83,7 @@ func (c Client) ListMyPullRequestsForRepository(ctx context.Context, owner, repo
 			HeadRefName:       pr.HeadRefName,
 			UpdatedAt:         pr.UpdatedAt,
 			IsDraft:           pr.IsDraft,
+			ReviewDecision:    pr.ReviewDecision,
 			IsCrossRepository: pr.IsCrossRepository,
 		})
 	}

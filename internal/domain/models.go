@@ -39,5 +39,6 @@ type GitHubPullRequest struct {
 	HeadRefName       string `json:"head_ref_name"`
 	UpdatedAt         string `json:"updated_at"`
 	IsDraft           bool   `json:"is_draft"`
+	ReviewDecision    string `json:"review_decision"`
 	IsCrossRepository bool   `json:"is_cross_repository"`
 }

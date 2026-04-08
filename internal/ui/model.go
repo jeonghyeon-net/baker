@@ -29,6 +29,7 @@ type WorktreeItem struct {
 	Selectable         bool
 	PullRequestNumber  int
 	PullRequestTitle   string
+	PullRequestStatus  string
 	PullRequestLoading bool
 }
 
@@ -441,6 +442,7 @@ func mergeWorkspacePullRequests(items []WorktreeItem, workspaceName string, prIt
 			}
 			workspaceItems[i].PullRequestNumber = prItem.PullRequestNumber
 			workspaceItems[i].PullRequestTitle = prItem.PullRequestTitle
+			workspaceItems[i].PullRequestStatus = prItem.PullRequestStatus
 			matched[prItem.BranchName] = struct{}{}
 			break
 		}
@@ -475,13 +477,20 @@ func relabelWorkspaceItems(items []WorktreeItem) []WorktreeItem {
 			continue
 		}
 		if relabeled[i].PullRequestNumber > 0 && relabeled[i].Path == "" {
-			relabeled[i].Label = fmt.Sprintf("  %s PR #%d %s", connector, relabeled[i].PullRequestNumber, relabeled[i].PullRequestTitle)
+			label := fmt.Sprintf("  %s PR #%d %s", connector, relabeled[i].PullRequestNumber, relabeled[i].PullRequestTitle)
+			if relabeled[i].PullRequestStatus != "" {
+				label += fmt.Sprintf("  [%s]", relabeled[i].PullRequestStatus)
+			}
+			relabeled[i].Label = label
 			continue
 		}
 		if relabeled[i].Selectable {
 			label := "  " + connector + " " + relabeled[i].WorktreeName
 			if relabeled[i].PullRequestNumber > 0 {
 				label += fmt.Sprintf("  [PR #%d]", relabeled[i].PullRequestNumber)
+				if relabeled[i].PullRequestStatus != "" {
+					label += fmt.Sprintf(" [%s]", relabeled[i].PullRequestStatus)
+				}
 			}
 			relabeled[i].Label = label
 		}

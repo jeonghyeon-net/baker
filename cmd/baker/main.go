@@ -664,17 +664,36 @@ func branchPathsForWorkspace(items []ui.WorktreeItem, workspaceName string) map[
 func buildPullRequestItems(workspaceName string, prs []domain.GitHubPullRequest, branchPaths map[string]string) []ui.WorktreeItem {
 	items := make([]ui.WorktreeItem, 0, len(prs))
 	for i, pr := range prs {
+		status := pullRequestStatusLabel(pr)
 		items = append(items, ui.WorktreeItem{
-			Label:             pullRequestLabel(pr.Number, pr.Title, i == len(prs)-1),
+			Label:             pullRequestLabel(pr.Number, pr.Title, status, i == len(prs)-1),
 			Path:              branchPaths[pr.HeadRefName],
 			WorkspaceName:     workspaceName,
 			BranchName:        pr.HeadRefName,
 			Selectable:        true,
 			PullRequestNumber: pr.Number,
 			PullRequestTitle:  pr.Title,
+			PullRequestStatus: status,
 		})
 	}
 	return items
+}
+
+func pullRequestStatusLabel(pr domain.GitHubPullRequest) string {
+	if pr.IsDraft {
+		return "초안"
+	}
+
+	switch pr.ReviewDecision {
+	case "APPROVED":
+		return "승인"
+	case "CHANGES_REQUESTED":
+		return "수정 요청"
+	case "REVIEW_REQUIRED":
+		return "리뷰 대기"
+	default:
+		return ""
+	}
 }
 
 func findWorkspace(registry config.Registry, workspaceName string) (domain.Workspace, bool) {
@@ -753,7 +772,7 @@ func relabelGroupItems(items []ui.WorktreeItem) []ui.WorktreeItem {
 		case relabeled[i].PullRequestLoading:
 			relabeled[i].Label = pullRequestLoadingLabel(last)
 		case relabeled[i].PullRequestNumber > 0 && relabeled[i].Path == "":
-			relabeled[i].Label = pullRequestLabel(relabeled[i].PullRequestNumber, relabeled[i].PullRequestTitle, last)
+			relabeled[i].Label = pullRequestLabel(relabeled[i].PullRequestNumber, relabeled[i].PullRequestTitle, relabeled[i].PullRequestStatus, last)
 		default:
 			relabeled[i].Label = worktreeLabel(relabeled[i].WorktreeName, last)
 		}
@@ -777,12 +796,16 @@ func pullRequestLoadingLabel(last bool) string {
 	return "  " + connector + " PR 불러오는 중..."
 }
 
-func pullRequestLabel(number int, title string, last bool) string {
+func pullRequestLabel(number int, title, status string, last bool) string {
 	connector := "├─"
 	if last {
 		connector = "└─"
 	}
-	return fmt.Sprintf("  %s PR #%d %s", connector, number, title)
+	label := fmt.Sprintf("  %s PR #%d %s", connector, number, title)
+	if status != "" {
+		label += fmt.Sprintf("  [%s]", status)
+	}
+	return label
 }
 
 func managedWorkspaceRoot(worktreesRoot, workspaceName string) (string, bool) {
