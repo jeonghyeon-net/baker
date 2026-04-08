@@ -55,7 +55,7 @@ func (m textInputModel) View() string {
 }
 
 func PromptText(title, hint, placeholder string) (string, error) {
-	finalModel, err := tea.NewProgram(NewTextInputModel(title, hint, placeholder)).Run()
+	finalModel, err := tea.NewProgram(NewTextInputModel(title, hint, placeholder), tea.WithAltScreen()).Run()
 	if err != nil {
 		return "", err
 	}

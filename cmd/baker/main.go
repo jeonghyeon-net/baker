@@ -2,12 +2,14 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/jeonghyeon-net/baker/internal/app"
@@ -19,6 +21,11 @@ import (
 	"github.com/jeonghyeon-net/baker/internal/ui"
 	bakerworkspace "github.com/jeonghyeon-net/baker/internal/workspace"
 	bakerworktree "github.com/jeonghyeon-net/baker/internal/worktree"
+)
+
+const (
+	githubRepositoryListTimeout = 60 * time.Second
+	workspaceSyncTimeout        = 30 * time.Second
 )
 
 type bootstrapShell struct{}
@@ -167,7 +174,7 @@ func runShellMode(ctx context.Context) (string, error) {
 }
 
 func runWorktreeSelection(worktrees []ui.WorktreeItem) (ui.Model, error) {
-	finalModel, err := tea.NewProgram(ui.NewModel(ui.State{Screen: ui.ScreenWorktrees, Worktrees: worktrees})).Run()
+	finalModel, err := tea.NewProgram(ui.NewModel(ui.State{Screen: ui.ScreenWorktrees, Worktrees: worktrees}), tea.WithAltScreen()).Run()
 	if err != nil {
 		return ui.Model{}, err
 	}
@@ -187,9 +194,15 @@ func addWorkspace(ctx context.Context, paths config.Paths, registry config.Regis
 
 	switch mode {
 	case "github":
-		fmt.Println("Loading GitHub repositories...")
-		repos, err := githubClient.ListRepositories(ctx)
+		reposCtx, cancel := context.WithTimeout(ctx, githubRepositoryListTimeout)
+		defer cancel()
+		repos, err := withTransientStatusValue("Loading GitHub repositories...", func() ([]domain.GitHubRepo, error) {
+			return githubClient.ListRepositories(reposCtx)
+		})
 		if err != nil {
+			if errors.Is(reposCtx.Err(), context.DeadlineExceeded) {
+				return fmt.Errorf("loading GitHub repositories timed out after %s", githubRepositoryListTimeout)
+			}
 			return err
 		}
 		if len(repos) == 0 {
@@ -249,8 +262,14 @@ func createWorktreeForWorkspace(ctx context.Context, paths config.Paths, registr
 		return "", nil
 	}
 
-	fmt.Printf("Loading branches for workspace %s...\n", workspaceName)
-	if err := workspaceService.Sync(ctx, workspace); err != nil {
+	syncCtx, cancel := context.WithTimeout(ctx, workspaceSyncTimeout)
+	defer cancel()
+	if err := withTransientStatus("Loading branches for workspace "+workspaceName+"...", func() error {
+		return workspaceService.Sync(syncCtx, workspace)
+	}); err != nil {
+		if errors.Is(syncCtx.Err(), context.DeadlineExceeded) {
+			return "", fmt.Errorf("loading branches for workspace %s timed out after %s", workspaceName, workspaceSyncTimeout)
+		}
 		return "", err
 	}
 	branches, err := gitClient.ListBranches(ctx, workspace.RepositoryPath)
@@ -323,7 +342,7 @@ func runRepositorySelection(repos []domain.GitHubRepo) (*domain.GitHubRepo, erro
 		names = append(names, repo.NameWithOwner)
 	}
 
-	finalModel, err := tea.NewProgram(ui.NewModel(ui.State{Screen: ui.ScreenWorkspaceGitHubPicker, Title: "Select repository", Hint: "Enter to select, esc to cancel", Repositories: names})).Run()
+	finalModel, err := tea.NewProgram(ui.NewModel(ui.State{Screen: ui.ScreenWorkspaceGitHubPicker, Title: "Select repository", Hint: "Enter to select, esc to cancel", Repositories: names}), tea.WithAltScreen()).Run()
 	if err != nil {
 		return nil, err
 	}
@@ -398,7 +417,7 @@ func defaultBranchName(repo domain.GitHubRepo, workspace domain.Workspace, branc
 }
 
 func runOptionSelection(title, hint string, options []string) (string, error) {
-	finalModel, err := tea.NewProgram(ui.NewModel(ui.State{Screen: ui.ScreenOptions, Title: title, Hint: hint, Options: options})).Run()
+	finalModel, err := tea.NewProgram(ui.NewModel(ui.State{Screen: ui.ScreenOptions, Title: title, Hint: hint, Options: options}), tea.WithAltScreen()).Run()
 	if err != nil {
 		return "", err
 	}
@@ -446,7 +465,7 @@ func runBranchSelection(branches []string, includeNewBranchOption bool) (string,
 	}
 	items = append(items, branches...)
 
-	finalModel, err := tea.NewProgram(ui.NewModel(ui.State{Screen: ui.ScreenCreateWorktree, Title: "Select branch", Hint: "Enter to select, esc to cancel", Branches: items})).Run()
+	finalModel, err := tea.NewProgram(ui.NewModel(ui.State{Screen: ui.ScreenCreateWorktree, Title: "Select branch", Hint: "Enter to select, esc to cancel", Branches: items}), tea.WithAltScreen()).Run()
 	if err != nil {
 		return "", err
 	}
@@ -462,7 +481,7 @@ func runBranchSelection(branches []string, includeNewBranchOption bool) (string,
 
 func runDeleteModeSelection() (string, error) {
 	modes := []string{string(bakerworktree.DeleteModeLocalBranch), string(bakerworktree.DeleteModeAll)}
-	finalModel, err := tea.NewProgram(ui.NewModel(ui.State{Screen: ui.ScreenDeleteConfirm, Title: "Delete worktree", Hint: "Default is local branch deletion", DeleteModes: modes})).Run()
+	finalModel, err := tea.NewProgram(ui.NewModel(ui.State{Screen: ui.ScreenDeleteConfirm, Title: "Delete worktree", Hint: "Default is local branch deletion", DeleteModes: modes}), tea.WithAltScreen()).Run()
 	if err != nil {
 		return "", err
 	}
@@ -471,6 +490,18 @@ func runDeleteModeSelection() (string, error) {
 		return "", fmt.Errorf("unexpected ui model type %T", finalModel)
 	}
 	return selected.SelectedAction, nil
+}
+
+func withTransientStatus(message string, fn func() error) error {
+	fmt.Fprint(os.Stderr, "\r\033[2K"+message)
+	defer fmt.Fprint(os.Stderr, "\r\033[2K")
+	return fn()
+}
+
+func withTransientStatusValue[T any](message string, fn func() (T, error)) (T, error) {
+	fmt.Fprint(os.Stderr, "\r\033[2K"+message)
+	defer fmt.Fprint(os.Stderr, "\r\033[2K")
+	return fn()
 }
 
 func findWorkspace(registry config.Registry, workspaceName string) (domain.Workspace, bool) {
