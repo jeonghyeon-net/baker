@@ -64,12 +64,39 @@ func TestDeleteShortcutSelectsDeleteActionFromWorktree(t *testing.T) {
 	}
 }
 
-func TestDeleteShortcutDoesNothingOnPullRequestRow(t *testing.T) {
+func TestDeleteShortcutSelectsDeleteActionFromMaterializedPullRequestWorktree(t *testing.T) {
 	model := NewModel(State{
 		Screen: ScreenWorktrees,
 		Worktrees: []WorktreeItem{
 			{Label: "▾ baker", WorkspaceName: "baker"},
 			{Label: "  └─ PR #42 로그인 수정", WorkspaceName: "baker", Path: "/tmp/baker/feature-login", BranchName: "feature/login", PullRequestNumber: 42, PullRequestTitle: "로그인 수정", Selectable: true},
+		},
+		Cursor: 1,
+	})
+
+	next, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'d'}})
+	updated := next.(Model)
+
+	if updated.SelectedAction != "delete-worktree" {
+		t.Fatalf("SelectedAction = %q", updated.SelectedAction)
+	}
+	if updated.SelectedWorkspace != "baker" {
+		t.Fatalf("SelectedWorkspace = %q", updated.SelectedWorkspace)
+	}
+	if updated.SelectedPath != "/tmp/baker/feature-login" {
+		t.Fatalf("SelectedPath = %q", updated.SelectedPath)
+	}
+	if updated.SelectedBranch != "feature/login" {
+		t.Fatalf("SelectedBranch = %q", updated.SelectedBranch)
+	}
+}
+
+func TestDeleteShortcutDoesNothingOnUnmaterializedPullRequestRow(t *testing.T) {
+	model := NewModel(State{
+		Screen: ScreenWorktrees,
+		Worktrees: []WorktreeItem{
+			{Label: "▾ baker", WorkspaceName: "baker"},
+			{Label: "  └─ PR #42 로그인 수정", WorkspaceName: "baker", BranchName: "feature/login", PullRequestNumber: 42, PullRequestTitle: "로그인 수정", Selectable: true},
 		},
 		Cursor: 1,
 	})
@@ -146,6 +173,22 @@ func TestEnterOnPullRequestRowSelectsOpenPRAction(t *testing.T) {
 	}
 	if updated.SelectedPath != "/tmp/baker/feature-login" {
 		t.Fatalf("SelectedPath = %q", updated.SelectedPath)
+	}
+}
+
+func TestWorktreeScreenHintShowsDeleteForMaterializedPullRequestWorktree(t *testing.T) {
+	model := NewModel(State{
+		Screen: ScreenWorktrees,
+		Worktrees: []WorktreeItem{
+			{Label: "▾ baker", WorkspaceName: "baker"},
+			{Label: "  └─ PR #42 로그인 수정", WorkspaceName: "baker", Path: "/tmp/baker/feature-login", BranchName: "feature/login", PullRequestNumber: 42, PullRequestTitle: "로그인 수정", Selectable: true},
+		},
+		Cursor: 1,
+	})
+
+	hint := model.worktreeScreenHint()
+	if !strings.Contains(hint, "d  현재 워크트리 삭제") {
+		t.Fatalf("hint = %q", hint)
 	}
 }
 

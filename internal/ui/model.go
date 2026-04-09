@@ -165,7 +165,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 				case "d":
 					if item, ok := m.currentWorktreeItem(); ok {
-						if item.Selectable && item.Path != "" && item.PullRequestNumber == 0 {
+						if item.Selectable && item.Path != "" {
 							m.SelectedAction = "delete-worktree"
 							m.SelectedWorkspace = item.WorkspaceName
 							m.SelectedPath = item.Path
@@ -441,11 +441,20 @@ func (m Model) worktreeScreenHint() string {
 		return renderActionPanel([]string{"a  워크스페이스 추가", "← →  워크스페이스 이동", "esc  종료"})
 	}
 	if item.Selectable {
-		if item.PullRequestNumber > 0 {
+		if item.PullRequestNumber > 0 && item.Path == "" {
 			return renderActionPanel([]string{
 				"enter  PR 워크트리 만들기/열기",
 				"← →  워크스페이스 이동",
 				fmt.Sprintf("c  %s에 새 워크트리 만들기", item.WorkspaceName),
+				"esc  종료",
+			})
+		}
+		if item.PullRequestNumber > 0 {
+			return renderActionPanel([]string{
+				"enter  PR 워크트리 열기",
+				"← →  워크스페이스 이동",
+				fmt.Sprintf("c  %s에 새 워크트리 만들기", item.WorkspaceName),
+				"d  현재 워크트리 삭제",
 				"esc  종료",
 			})
 		}
