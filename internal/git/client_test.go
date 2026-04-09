@@ -131,6 +131,23 @@ func TestAddNewBranchWorktreeUsesRemoteTrackingBaseBranch(t *testing.T) {
 	assertCallArgs(t, runner.calls[0], "git", []string{"--git-dir", "/tmp/repo.git", "worktree", "add", "-b", "feature/login", "/tmp/worktree", "origin/main"})
 }
 
+func TestDeleteRemoteBranchIgnoresMissingRemoteRef(t *testing.T) {
+	runner := &fakeRunner{results: []fakeRunnerResult{{
+		result: internalexec.Result{Stderr: "error: unable to delete 'fix/code-to-id': remote ref does not exist\nerror: failed to push some refs to 'github.com:creatrip/product.git'"},
+		err:    errors.New("exit status 1"),
+	}}}
+	client := Client{Runner: runner}
+
+	if err := client.DeleteRemoteBranch(context.Background(), "/tmp/repo.git", "fix/code-to-id"); err != nil {
+		t.Fatalf("DeleteRemoteBranch() error = %v, want nil", err)
+	}
+
+	if len(runner.calls) != 1 {
+		t.Fatalf("call count = %d, want 1", len(runner.calls))
+	}
+	assertCallArgs(t, runner.calls[0], "git", []string{"--git-dir", "/tmp/repo.git", "push", "origin", "--delete", "fix/code-to-id"})
+}
+
 func assertCallArgs(t *testing.T, call fakeRunnerCall, expectedName string, expectedArgs []string) {
 	t.Helper()
 	if call.name != expectedName {

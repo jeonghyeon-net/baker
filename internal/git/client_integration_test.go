@@ -154,6 +154,10 @@ func TestClientIntegrationAddNewBranchWorktreeAndPushBranch(t *testing.T) {
 	if err := runGitExpectError(remotePath, "show-ref", "--verify", "refs/heads/feature/login"); err == nil {
 		t.Fatal("expected feature/login to be deleted from remote")
 	}
+
+	if err := client.DeleteRemoteBranch(ctx, localBarePath, "feature/login"); err != nil {
+		t.Fatalf("DeleteRemoteBranch on missing remote branch returned error: %v", err)
+	}
 }
 
 func assertBranchNames(t *testing.T, branches []domain.BranchRef, expectedNames ...string) {

@@ -160,7 +160,10 @@ func (c Client) DeleteLocalBranch(ctx context.Context, repoPath, branch string, 
 }
 
 func (c Client) DeleteRemoteBranch(ctx context.Context, repoPath, branch string) error {
-	_, err := c.runner().Run(ctx, "git", "--git-dir", repoPath, "push", "origin", "--delete", branch)
+	result, err := c.runner().Run(ctx, "git", "--git-dir", repoPath, "push", "origin", "--delete", branch)
+	if err != nil && isMissingRemoteBranchDelete(result) {
+		return nil
+	}
 	return err
 }
 
@@ -180,6 +183,11 @@ func shouldRetryWithoutFilter(result internalexec.Result) bool {
 		}
 	}
 	return false
+}
+
+func isMissingRemoteBranchDelete(result internalexec.Result) bool {
+	output := strings.ToLower(result.Stdout + "\n" + result.Stderr)
+	return strings.Contains(output, "unable to delete") && strings.Contains(output, "remote ref does not exist")
 }
 
 func firstRemoteName(output string) string {
