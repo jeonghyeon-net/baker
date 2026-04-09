@@ -129,8 +129,16 @@ func TestClientIntegrationAddNewBranchWorktreeAndPushBranch(t *testing.T) {
 		t.Fatalf("FetchAll returned error: %v", err)
 	}
 
+	runGit(t, tempDir, "--git-dir", localBarePath, "update-ref", "-d", "refs/heads/main")
+	if got := gitRevParse(t, localBarePath, "refs/remotes/origin/main"); got == "" {
+		t.Fatal("expected origin/main to remain available after deleting local main")
+	}
+
 	if err := client.AddNewBranchWorktree(ctx, localBarePath, "main", "feature/login", worktreePath); err != nil {
 		t.Fatalf("AddNewBranchWorktree returned error: %v", err)
+	}
+	if got := gitRevParseWorktree(t, worktreePath, "--abbrev-ref", "HEAD"); got != "feature/login" {
+		t.Fatalf("HEAD branch = %q, want %q", got, "feature/login")
 	}
 
 	if err := client.PushBranch(ctx, worktreePath, "feature/login"); err != nil {

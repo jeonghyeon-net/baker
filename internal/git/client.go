@@ -88,7 +88,7 @@ func (c Client) SetBranchUpstream(ctx context.Context, worktreePath, branch, rem
 }
 
 func (c Client) AddNewBranchWorktree(ctx context.Context, repoPath, baseBranch, newBranch, worktreePath string) error {
-	_, err := c.runner().Run(ctx, "git", "--git-dir", repoPath, "worktree", "add", "-b", newBranch, worktreePath, baseBranch)
+	_, err := c.runner().Run(ctx, "git", "--git-dir", repoPath, "worktree", "add", "-b", newBranch, worktreePath, remoteTrackingBranch("origin", baseBranch))
 	return err
 }
 
@@ -191,6 +191,13 @@ func firstRemoteName(output string) string {
 	}
 
 	return ""
+}
+
+func remoteTrackingBranch(remoteName, branch string) string {
+	if remoteName == "" {
+		remoteName = "origin"
+	}
+	return remoteName + "/" + branch
 }
 
 func (c Client) runner() Runner {

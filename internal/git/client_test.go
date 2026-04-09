@@ -117,6 +117,20 @@ func TestSetBranchUpstreamUsesRemoteTrackingRef(t *testing.T) {
 	assertCallArgs(t, runner.calls[0], "git", []string{"-C", "/tmp/worktree", "branch", "--set-upstream-to", "origin/feature/login", "feature/login"})
 }
 
+func TestAddNewBranchWorktreeUsesRemoteTrackingBaseBranch(t *testing.T) {
+	runner := &fakeRunner{results: []fakeRunnerResult{{}}}
+	client := Client{Runner: runner}
+
+	if err := client.AddNewBranchWorktree(context.Background(), "/tmp/repo.git", "main", "feature/login", "/tmp/worktree"); err != nil {
+		t.Fatalf("AddNewBranchWorktree() error = %v", err)
+	}
+
+	if len(runner.calls) != 1 {
+		t.Fatalf("call count = %d, want 1", len(runner.calls))
+	}
+	assertCallArgs(t, runner.calls[0], "git", []string{"--git-dir", "/tmp/repo.git", "worktree", "add", "-b", "feature/login", "/tmp/worktree", "origin/main"})
+}
+
 func assertCallArgs(t *testing.T, call fakeRunnerCall, expectedName string, expectedArgs []string) {
 	t.Helper()
 	if call.name != expectedName {

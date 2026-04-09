@@ -707,11 +707,18 @@ func suggestedWorkspaceNameFromRemote(remoteURL string) string {
 }
 
 func promptCreateMode() (string, error) {
-	choice, err := runMappedOptionSelection("워크트리 생성", "enter 선택 • esc 취소", []optionChoice{{Label: "기존 브랜치로 생성", Value: "existing"}, {Label: "새 브랜치 만들어 생성", Value: "new"}})
+	choice, err := runMappedOptionSelection("워크트리 생성", "enter 선택 • esc 취소", createWorktreeModeOptions())
 	if err != nil {
 		return "", err
 	}
 	return choice, nil
+}
+
+func createWorktreeModeOptions() []optionChoice {
+	return []optionChoice{
+		{Label: "새 브랜치 만들어 생성", Value: "new"},
+		{Label: "기존 브랜치로 생성", Value: "existing"},
+	}
 }
 
 func promptText(label string) (string, error) {

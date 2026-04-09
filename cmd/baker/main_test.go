@@ -75,6 +75,20 @@ func TestEnsureProcessOutsidePathDoesNothingWhenOutsideTarget(t *testing.T) {
 	}
 }
 
+func TestCreateWorktreeModeOptionsPrioritizeNewBranch(t *testing.T) {
+	got := createWorktreeModeOptions()
+	want := []optionChoice{{Label: "새 브랜치 만들어 생성", Value: "new"}, {Label: "기존 브랜치로 생성", Value: "existing"}}
+
+	if len(got) != len(want) {
+		t.Fatalf("len(createWorktreeModeOptions()) = %d, want %d", len(got), len(want))
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("createWorktreeModeOptions()[%d] = %#v, want %#v", i, got[i], want[i])
+		}
+	}
+}
+
 func TestPrioritizedBranchNames(t *testing.T) {
 	tests := []struct {
 		name     string
