@@ -24,10 +24,12 @@ import (
 )
 
 const (
-	githubRepositoryListTimeout = 60 * time.Second
-	workspaceCreateTimeout      = 5 * time.Minute
-	workspaceSyncTimeout        = 30 * time.Second
-	deleteTimeout               = 2 * time.Minute
+	githubRepositoryListTimeout    = 60 * time.Second
+	workspaceCreateTimeout         = 5 * time.Minute
+	workspaceSyncTimeout           = 30 * time.Second
+	deleteTimeout                  = 2 * time.Minute
+	remoteStatusRefreshTTL         = 5 * time.Minute
+	remoteStatusRefreshConcurrency = 2
 )
 
 type bootstrapShell struct{}
@@ -204,17 +206,29 @@ func runWorktreeSelection(ctx context.Context, worktrees []ui.WorktreeItem, regi
 	loadCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
+	remoteStatusSlots := make(chan struct{}, remoteStatusRefreshConcurrency)
+
 	for _, workspace := range registry.Workspaces {
 		workspace := workspace
 		branchPaths := branchPathsForWorkspace(worktrees, workspace.Name)
 
-		if len(branchPaths) > 0 {
+		if len(branchPaths) > 0 && workspaceHasRemoteStatusLoading(worktrees, workspace.Name) {
 			go func() {
-				missingBranches, ok := loadMissingRemoteBranches(loadCtx, gitClient, workspace.RepositoryPath, branchPaths)
-				if !ok {
+				select {
+				case remoteStatusSlots <- struct{}{}:
+				case <-loadCtx.Done():
 					return
 				}
-				program.Send(ui.WorkspaceRemoteStatusLoadedMsg{WorkspaceName: workspace.Name, MissingBranches: missingBranches})
+				defer func() { <-remoteStatusSlots }()
+
+				missingBranches, ok := loadMissingRemoteBranches(loadCtx, gitClient, workspace.RepositoryPath, branchPaths)
+				if ok {
+					program.Send(ui.WorkspaceRemoteStatusLoadedMsg{WorkspaceName: workspace.Name, MissingBranches: missingBranches})
+					return
+				}
+				if loadCtx.Err() == nil {
+					program.Send(ui.WorkspaceRemoteStatusLoadedMsg{WorkspaceName: workspace.Name, Failed: true})
+				}
 			}()
 		}
 
@@ -886,6 +900,17 @@ func loadWorktreeItems(ctx context.Context, paths config.Paths, registry config.
 			})
 		}
 
+		branchPaths := branchPathsForWorkspace(items, workspace.Name)
+		if len(branchPaths) > 0 {
+			missingBranches, ok := loadCachedMissingRemoteBranches(ctx, gitClient, workspace.RepositoryPath, branchPaths)
+			if ok {
+				items = markMissingRemoteBranches(items, missingBranches)
+			}
+			if !ok || remoteStatusNeedsRefresh(workspace.RepositoryPath, time.Now()) {
+				items = markRemoteStatusLoading(items)
+			}
+		}
+
 		sort.Slice(items, func(i, j int) bool { return worktreeSortKey(items[i]) < worktreeSortKey(items[j]) })
 		if workspace.Owner != "" && workspace.Repo != "" {
 			items = append(items, ui.WorktreeItem{WorkspaceName: workspace.Name, PullRequestLoading: true})
@@ -903,6 +928,72 @@ func loadWorktreeItems(ctx context.Context, paths config.Paths, registry config.
 		}
 	}
 	return worktrees, nil
+}
+
+func markRemoteStatusLoading(items []ui.WorktreeItem) []ui.WorktreeItem {
+	marked := append([]ui.WorktreeItem{}, items...)
+	for i := range marked {
+		if !marked[i].Selectable || marked[i].Path == "" || marked[i].BranchName == "" {
+			continue
+		}
+		marked[i].RemoteStatusLoading = true
+		marked[i].RemoteStatusFailed = false
+	}
+	return marked
+}
+
+func markMissingRemoteBranches(items []ui.WorktreeItem, missingBranches []string) []ui.WorktreeItem {
+	missing := make(map[string]struct{}, len(missingBranches))
+	for _, branch := range missingBranches {
+		missing[branch] = struct{}{}
+	}
+
+	marked := append([]ui.WorktreeItem{}, items...)
+	for i := range marked {
+		if !marked[i].Selectable || marked[i].Path == "" || marked[i].BranchName == "" {
+			continue
+		}
+		_, marked[i].MissingRemote = missing[marked[i].BranchName]
+		marked[i].RemoteStatusFailed = false
+	}
+	return marked
+}
+
+func workspaceHasRemoteStatusLoading(items []ui.WorktreeItem, workspaceName string) bool {
+	for _, item := range items {
+		if item.WorkspaceName == workspaceName && item.RemoteStatusLoading {
+			return true
+		}
+	}
+	return false
+}
+
+func remoteStatusNeedsRefresh(repoPath string, now time.Time) bool {
+	lastUpdated, ok := remoteStatusLastUpdated(repoPath)
+	if !ok {
+		return true
+	}
+	return now.Sub(lastUpdated) >= remoteStatusRefreshTTL
+}
+
+func remoteStatusLastUpdated(repoPath string) (time.Time, bool) {
+	info, err := os.Stat(filepath.Join(repoPath, "FETCH_HEAD"))
+	if err != nil {
+		return time.Time{}, false
+	}
+	return info.ModTime(), true
+}
+
+func loadCachedMissingRemoteBranches(ctx context.Context, gitClient bakergit.Client, repoPath string, branchPaths map[string]string) ([]string, bool) {
+	if len(branchPaths) == 0 {
+		return nil, true
+	}
+
+	branches, err := gitClient.ListBranches(ctx, repoPath)
+	if err != nil {
+		return nil, false
+	}
+	return missingRemoteBranches(branchPaths, branches), true
 }
 
 func loadFreshRemoteBranches(parent context.Context, gitClient bakergit.Client, repoPath string) ([]domain.BranchRef, bool) {

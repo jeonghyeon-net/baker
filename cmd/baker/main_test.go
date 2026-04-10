@@ -8,11 +8,13 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jeonghyeon-net/baker/internal/config"
 	"github.com/jeonghyeon-net/baker/internal/domain"
 	internalexec "github.com/jeonghyeon-net/baker/internal/exec"
 	bakergit "github.com/jeonghyeon-net/baker/internal/git"
+	"github.com/jeonghyeon-net/baker/internal/ui"
 )
 
 func TestEnsureProcessOutsidePathMovesToHomeWhenInsideTarget(t *testing.T) {
@@ -165,6 +167,108 @@ func TestLoadWorktreeItemsDoesNotFetchRemoteStatusSynchronously(t *testing.T) {
 	}
 	if items[1].MissingRemote {
 		t.Fatalf("items[1].MissingRemote = %v, want false before async refresh (%#v)", items[1].MissingRemote, items[1])
+	}
+	if !items[1].RemoteStatusLoading {
+		t.Fatalf("items[1].RemoteStatusLoading = %v, want true before async refresh (%#v)", items[1].RemoteStatusLoading, items[1])
+	}
+	if containsCall(runner.calls, "git --git-dir "+repoPath+" fetch --prune --force --filter=blob:none origin") {
+		t.Fatalf("loadWorktreeItems() unexpectedly fetched remote status: %#v", runner.calls)
+	}
+}
+
+func TestLoadWorktreeItemsUsesCachedRemoteRefsWhenFresh(t *testing.T) {
+	root := t.TempDir()
+	paths := config.DefaultPaths(root)
+	repoPath := filepath.Join(paths.RepositoriesRoot, "baker")
+	worktreePath := filepath.Join(paths.WorktreesRoot, "baker", "feature-login")
+	fetchHeadPath := filepath.Join(repoPath, "FETCH_HEAD")
+
+	if err := os.MkdirAll(repoPath, 0o755); err != nil {
+		t.Fatalf("MkdirAll(repoPath) error = %v", err)
+	}
+	if err := os.WriteFile(fetchHeadPath, []byte("fetch\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(FETCH_HEAD) error = %v", err)
+	}
+	now := time.Now()
+	if err := os.Chtimes(fetchHeadPath, now, now); err != nil {
+		t.Fatalf("Chtimes(FETCH_HEAD) error = %v", err)
+	}
+
+	runner := &stubRunner{responses: map[string]stubRunnerResponse{
+		"git --git-dir " + repoPath + " worktree list --porcelain": {
+			result: internalexec.Result{Stdout: "worktree " + worktreePath + "\nHEAD deadbeef\nbranch refs/heads/feature/login\n"},
+		},
+		"git --git-dir " + repoPath + " remote": {
+			result: internalexec.Result{Stdout: "origin\n"},
+		},
+		"git --git-dir " + repoPath + " for-each-ref --format=%(refname:lstrip=3)\tremote\torigin refs/remotes/origin": {
+			result: internalexec.Result{Stdout: "main\tremote\torigin\n"},
+		},
+	}}
+
+	items, err := loadWorktreeItems(context.Background(), paths, config.Registry{Workspaces: []domain.Workspace{{Name: "baker", RepositoryPath: repoPath}}}, bakergit.Client{Runner: runner})
+	if err != nil {
+		t.Fatalf("loadWorktreeItems() error = %v", err)
+	}
+	if len(items) != 2 {
+		t.Fatalf("len(items) = %d, want 2 (%#v)", len(items), items)
+	}
+	if !items[1].MissingRemote {
+		t.Fatalf("items[1].MissingRemote = %v, want true from cached refs (%#v)", items[1].MissingRemote, items[1])
+	}
+	if items[1].RemoteStatusLoading {
+		t.Fatalf("items[1].RemoteStatusLoading = %v, want false with fresh cache (%#v)", items[1].RemoteStatusLoading, items[1])
+	}
+	if containsCall(runner.calls, "git --git-dir "+repoPath+" fetch --prune --force --filter=blob:none origin") {
+		t.Fatalf("loadWorktreeItems() unexpectedly fetched remote status: %#v", runner.calls)
+	}
+}
+
+func TestMarkRemoteStatusLoadingSkipsBranchlessItems(t *testing.T) {
+	items := []ui.WorktreeItem{
+		{WorkspaceName: "baker", Path: "/tmp/baker/main", BranchName: "main", Selectable: true},
+		{WorkspaceName: "baker", Path: "/tmp/baker/detached", Selectable: true},
+		{WorkspaceName: "baker", BranchName: "feature/login", Selectable: true},
+		{WorkspaceName: "baker", Path: "/tmp/baker/pr", BranchName: "feature/pr", Selectable: false},
+	}
+
+	marked := markRemoteStatusLoading(items)
+	if !marked[0].RemoteStatusLoading {
+		t.Fatalf("marked[0].RemoteStatusLoading = %v, want true", marked[0].RemoteStatusLoading)
+	}
+	if marked[1].RemoteStatusLoading {
+		t.Fatalf("marked[1].RemoteStatusLoading = %v, want false", marked[1].RemoteStatusLoading)
+	}
+	if marked[2].RemoteStatusLoading {
+		t.Fatalf("marked[2].RemoteStatusLoading = %v, want false", marked[2].RemoteStatusLoading)
+	}
+	if marked[3].RemoteStatusLoading {
+		t.Fatalf("marked[3].RemoteStatusLoading = %v, want false", marked[3].RemoteStatusLoading)
+	}
+}
+
+func TestRemoteStatusNeedsRefreshUsesFetchHeadTTL(t *testing.T) {
+	repoPath := t.TempDir()
+	fetchHeadPath := filepath.Join(repoPath, "FETCH_HEAD")
+	if err := os.WriteFile(fetchHeadPath, []byte("fetch\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(FETCH_HEAD) error = %v", err)
+	}
+
+	now := time.Now()
+	fresh := now.Add(-(remoteStatusRefreshTTL / 2))
+	if err := os.Chtimes(fetchHeadPath, fresh, fresh); err != nil {
+		t.Fatalf("Chtimes(fresh) error = %v", err)
+	}
+	if remoteStatusNeedsRefresh(repoPath, now) {
+		t.Fatal("remoteStatusNeedsRefresh() = true, want false for fresh FETCH_HEAD")
+	}
+
+	stale := now.Add(-remoteStatusRefreshTTL).Add(-time.Second)
+	if err := os.Chtimes(fetchHeadPath, stale, stale); err != nil {
+		t.Fatalf("Chtimes(stale) error = %v", err)
+	}
+	if !remoteStatusNeedsRefresh(repoPath, now) {
+		t.Fatal("remoteStatusNeedsRefresh() = false, want true for stale FETCH_HEAD")
 	}
 }
 

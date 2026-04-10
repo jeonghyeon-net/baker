@@ -225,6 +225,72 @@ func TestWorktreeViewShowsMissingRemoteBadge(t *testing.T) {
 	}
 }
 
+func TestWorktreeViewShowsRemoteStatusLoadingBadge(t *testing.T) {
+	model := NewModel(State{
+		Screen: ScreenWorktrees,
+		Worktrees: []WorktreeItem{
+			{Label: "baker", WorkspaceName: "baker"},
+			{Label: "  feature-login", WorkspaceName: "baker", Path: "/Users/me/.pi/worktrees/baker/feature-login", BranchName: "feature/login", Selectable: true, RemoteStatusLoading: true},
+		},
+	})
+
+	view := model.View()
+	if !strings.Contains(view, "원격 확인 중") {
+		t.Fatalf("view = %q", view)
+	}
+}
+
+func TestWorktreeViewShowsRemoteStatusFailedBadge(t *testing.T) {
+	model := NewModel(State{
+		Screen: ScreenWorktrees,
+		Worktrees: []WorktreeItem{
+			{Label: "baker", WorkspaceName: "baker"},
+			{Label: "  feature-login", WorkspaceName: "baker", Path: "/Users/me/.pi/worktrees/baker/feature-login", BranchName: "feature/login", Selectable: true, RemoteStatusFailed: true},
+		},
+	})
+
+	view := model.View()
+	if !strings.Contains(view, "원격 확인 실패") {
+		t.Fatalf("view = %q", view)
+	}
+}
+
+func TestWorktreeViewPrefersLoadingBadgeOverStaleMissingRemoteBadge(t *testing.T) {
+	model := NewModel(State{
+		Screen: ScreenWorktrees,
+		Worktrees: []WorktreeItem{
+			{Label: "baker", WorkspaceName: "baker"},
+			{Label: "  feature-login", WorkspaceName: "baker", Path: "/Users/me/.pi/worktrees/baker/feature-login", BranchName: "feature/login", Selectable: true, MissingRemote: true, RemoteStatusLoading: true},
+		},
+	})
+
+	view := model.View()
+	if !strings.Contains(view, "원격 확인 중") {
+		t.Fatalf("view = %q", view)
+	}
+	if strings.Contains(view, "원격 브랜치 없음") {
+		t.Fatalf("view should not show stale missing badge while loading: %q", view)
+	}
+}
+
+func TestWorktreeViewPrefersFailedBadgeOverStaleMissingRemoteBadge(t *testing.T) {
+	model := NewModel(State{
+		Screen: ScreenWorktrees,
+		Worktrees: []WorktreeItem{
+			{Label: "baker", WorkspaceName: "baker"},
+			{Label: "  feature-login", WorkspaceName: "baker", Path: "/Users/me/.pi/worktrees/baker/feature-login", BranchName: "feature/login", Selectable: true, MissingRemote: true, RemoteStatusFailed: true},
+		},
+	})
+
+	view := model.View()
+	if !strings.Contains(view, "원격 확인 실패") {
+		t.Fatalf("view = %q", view)
+	}
+	if strings.Contains(view, "원격 브랜치 없음") {
+		t.Fatalf("view should not show stale missing badge after refresh failure: %q", view)
+	}
+}
+
 func TestEnterSelectsBranchInCreateScreen(t *testing.T) {
 	model := NewModel(State{Screen: ScreenCreateWorktree, Branches: []string{"main", "feature/login"}, Cursor: 1})
 
@@ -325,18 +391,56 @@ func TestMergeWorkspaceRemoteStatusMarksOnlyMatchingMaterializedWorktrees(t *tes
 		{Label: "  └─ main", WorkspaceName: "api", WorktreeName: "main", Path: "/tmp/api/main", BranchName: "main", Selectable: true},
 	}
 
-	merged := mergeWorkspaceRemoteStatus(items, "baker", []string{"feature/login"})
+	items[1].RemoteStatusLoading = true
+	items[2].RemoteStatusLoading = true
+	items[5].RemoteStatusLoading = true
+
+	merged := mergeWorkspaceRemoteStatus(items, "baker", []string{"feature/login"}, false)
 	if merged[1].MissingRemote {
 		t.Fatalf("merged[1].MissingRemote = %v, want false", merged[1].MissingRemote)
+	}
+	if merged[1].RemoteStatusLoading {
+		t.Fatalf("merged[1].RemoteStatusLoading = %v, want false after merge", merged[1].RemoteStatusLoading)
 	}
 	if !merged[2].MissingRemote {
 		t.Fatalf("merged[2].MissingRemote = %v, want true", merged[2].MissingRemote)
 	}
+	if merged[2].RemoteStatusLoading {
+		t.Fatalf("merged[2].RemoteStatusLoading = %v, want false after merge", merged[2].RemoteStatusLoading)
+	}
 	if merged[3].MissingRemote {
 		t.Fatalf("merged[3].MissingRemote = %v, want false for unmaterialized PR row", merged[3].MissingRemote)
 	}
+	if merged[3].RemoteStatusLoading {
+		t.Fatalf("merged[3].RemoteStatusLoading = %v, want false for unmaterialized PR row", merged[3].RemoteStatusLoading)
+	}
 	if merged[5].MissingRemote {
 		t.Fatalf("merged[5].MissingRemote = %v, want false for other workspace", merged[5].MissingRemote)
+	}
+	if !merged[5].RemoteStatusLoading {
+		t.Fatalf("merged[5].RemoteStatusLoading = %v, want unchanged true for other workspace", merged[5].RemoteStatusLoading)
+	}
+}
+
+func TestMergeWorkspaceRemoteStatusMarksFailureAndClearsLoading(t *testing.T) {
+	items := []WorktreeItem{
+		{Label: "▾ baker", WorkspaceName: "baker"},
+		{Label: "  ├─ main", WorkspaceName: "baker", WorktreeName: "main", Path: "/tmp/baker/main", BranchName: "main", Selectable: true, RemoteStatusLoading: true},
+		{Label: "  └─ feature-login", WorkspaceName: "baker", WorktreeName: "feature-login", Path: "/tmp/baker/feature-login", BranchName: "feature/login", Selectable: true, RemoteStatusLoading: true, MissingRemote: true},
+	}
+
+	merged := mergeWorkspaceRemoteStatus(items, "baker", nil, true)
+	if merged[1].RemoteStatusLoading {
+		t.Fatalf("merged[1].RemoteStatusLoading = %v, want false", merged[1].RemoteStatusLoading)
+	}
+	if !merged[1].RemoteStatusFailed {
+		t.Fatalf("merged[1].RemoteStatusFailed = %v, want true", merged[1].RemoteStatusFailed)
+	}
+	if !merged[2].MissingRemote {
+		t.Fatalf("merged[2].MissingRemote = %v, want true", merged[2].MissingRemote)
+	}
+	if !merged[2].RemoteStatusFailed {
+		t.Fatalf("merged[2].RemoteStatusFailed = %v, want true so failure is shown over stale missing state", merged[2].RemoteStatusFailed)
 	}
 }
 

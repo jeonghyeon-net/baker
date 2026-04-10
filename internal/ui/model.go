@@ -21,17 +21,19 @@ const (
 const NewBranchOption = "+ 새 브랜치 만들기"
 
 type WorktreeItem struct {
-	Label              string
-	Path               string
-	WorkspaceName      string
-	WorktreeName       string
-	BranchName         string
-	Selectable         bool
-	MissingRemote      bool
-	PullRequestNumber  int
-	PullRequestTitle   string
-	PullRequestStatus  string
-	PullRequestLoading bool
+	Label               string
+	Path                string
+	WorkspaceName       string
+	WorktreeName        string
+	BranchName          string
+	Selectable          bool
+	RemoteStatusLoading bool
+	RemoteStatusFailed  bool
+	MissingRemote       bool
+	PullRequestNumber   int
+	PullRequestTitle    string
+	PullRequestStatus   string
+	PullRequestLoading  bool
 }
 
 type WorktreesLoadedMsg struct {
@@ -46,6 +48,7 @@ type WorkspacePullRequestsLoadedMsg struct {
 type WorkspaceRemoteStatusLoadedMsg struct {
 	WorkspaceName   string
 	MissingBranches []string
+	Failed          bool
 }
 
 type State struct {
@@ -117,6 +120,10 @@ var (
 					Foreground(lipgloss.Color("221"))
 	draftStatusStyle = lipgloss.NewStyle().
 				Foreground(lipgloss.Color("146"))
+	remoteStatusLoadingStyle = lipgloss.NewStyle().
+					Foreground(lipgloss.Color("243"))
+	remoteStatusFailedStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("203"))
 	missingRemoteStatusStyle = lipgloss.NewStyle().
 					Foreground(lipgloss.Color("221"))
 	pillStyle = lipgloss.NewStyle().
@@ -146,7 +153,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.Cursor = clampIndex(m.Cursor, m.listLength())
 		return m, nil
 	case WorkspaceRemoteStatusLoadedMsg:
-		m.Worktrees = mergeWorkspaceRemoteStatus(m.Worktrees, msg.WorkspaceName, msg.MissingBranches)
+		m.Worktrees = mergeWorkspaceRemoteStatus(m.Worktrees, msg.WorkspaceName, msg.MissingBranches, msg.Failed)
 		m.Cursor = clampIndex(m.Cursor, m.listLength())
 		return m, nil
 	case tea.WindowSizeMsg:
@@ -349,7 +356,11 @@ func renderTreeLine(item WorktreeItem, selected bool) string {
 				line += renderBadgeSegment(pullRequestStatusStyle(item.PullRequestStatus), fmt.Sprintf(" [%s]", item.PullRequestStatus), selected)
 			}
 		}
-		if item.MissingRemote {
+		if item.RemoteStatusFailed {
+			line += renderBadgeSegment(remoteStatusFailedStyle, "  [원격 확인 실패]", selected)
+		} else if item.RemoteStatusLoading {
+			line += renderBadgeSegment(remoteStatusLoadingStyle, "  [원격 확인 중…]", selected)
+		} else if item.MissingRemote {
 			line += renderBadgeSegment(missingRemoteStatusStyle, "  [원격 브랜치 없음]", selected)
 		}
 		return line
@@ -509,7 +520,7 @@ func renderActionPanel(lines []string) string {
 	return strings.Join(rendered, "\n")
 }
 
-func mergeWorkspaceRemoteStatus(items []WorktreeItem, workspaceName string, missingBranches []string) []WorktreeItem {
+func mergeWorkspaceRemoteStatus(items []WorktreeItem, workspaceName string, missingBranches []string, failed bool) []WorktreeItem {
 	if workspaceName == "" || len(items) == 0 {
 		return items
 	}
@@ -524,7 +535,13 @@ func mergeWorkspaceRemoteStatus(items []WorktreeItem, workspaceName string, miss
 		if merged[i].WorkspaceName != workspaceName || !merged[i].Selectable || merged[i].Path == "" || merged[i].BranchName == "" {
 			continue
 		}
+		merged[i].RemoteStatusLoading = false
+		if failed {
+			merged[i].RemoteStatusFailed = true
+			continue
+		}
 		_, merged[i].MissingRemote = missing[merged[i].BranchName]
+		merged[i].RemoteStatusFailed = false
 	}
 	return merged
 }
