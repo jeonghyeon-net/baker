@@ -457,29 +457,29 @@ func (m Model) worktreeScreenHint() string {
 	}
 	if item.Selectable {
 		if item.PullRequestNumber > 0 && item.Path == "" {
-			return renderActionPanel(withWorktreeWarnings([]string{
+			return renderActionPanel([]string{
 				"enter  PR 워크트리 만들기/열기",
 				"← →  워크스페이스 이동",
 				fmt.Sprintf("c  %s에 새 워크트리 만들기", item.WorkspaceName),
 				"esc  종료",
-			}, item))
+			})
 		}
 		if item.PullRequestNumber > 0 {
-			return renderActionPanel(withWorktreeWarnings([]string{
+			return renderActionPanel([]string{
 				"enter  PR 워크트리 열기",
 				"← →  워크스페이스 이동",
 				fmt.Sprintf("c  %s에 새 워크트리 만들기", item.WorkspaceName),
 				"d  현재 워크트리 삭제",
 				"esc  종료",
-			}, item))
+			})
 		}
-		return renderActionPanel(withWorktreeWarnings([]string{
+		return renderActionPanel([]string{
 			"enter  현재 워크트리 열기",
 			"← →  워크스페이스 이동",
 			fmt.Sprintf("c  %s에 새 워크트리 만들기", item.WorkspaceName),
 			"d  현재 워크트리 삭제",
 			"esc  종료",
-		}, item))
+		})
 	}
 	if item.PullRequestLoading {
 		return renderActionPanel([]string{
@@ -499,13 +499,6 @@ func (m Model) worktreeScreenHint() string {
 		})
 	}
 	return renderActionPanel([]string{"a  워크스페이스 추가", "← →  워크스페이스 이동", "esc  종료"})
-}
-
-func withWorktreeWarnings(lines []string, item WorktreeItem) []string {
-	if item.MissingRemote {
-		lines = append(lines, "경고: 원격 브랜치 없음")
-	}
-	return lines
 }
 
 func renderActionPanel(lines []string) string {

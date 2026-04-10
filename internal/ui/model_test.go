@@ -192,22 +192,6 @@ func TestWorktreeScreenHintShowsDeleteForMaterializedPullRequestWorktree(t *test
 	}
 }
 
-func TestWorktreeScreenHintShowsMissingRemoteWarning(t *testing.T) {
-	model := NewModel(State{
-		Screen: ScreenWorktrees,
-		Worktrees: []WorktreeItem{
-			{Label: "▾ baker", WorkspaceName: "baker"},
-			{Label: "  └─ feature-login", WorkspaceName: "baker", Path: "/tmp/baker/feature-login", BranchName: "feature/login", Selectable: true, MissingRemote: true},
-		},
-		Cursor: 1,
-	})
-
-	hint := model.worktreeScreenHint()
-	if !strings.Contains(hint, "경고: 원격 브랜치 없음") {
-		t.Fatalf("hint = %q", hint)
-	}
-}
-
 func TestWorktreeViewShowsTreeLabelsNotFullPaths(t *testing.T) {
 	model := NewModel(State{
 		Screen: ScreenWorktrees,
