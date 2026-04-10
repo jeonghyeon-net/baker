@@ -27,6 +27,7 @@ type WorktreeItem struct {
 	WorktreeName       string
 	BranchName         string
 	Selectable         bool
+	MissingRemote      bool
 	PullRequestNumber  int
 	PullRequestTitle   string
 	PullRequestStatus  string
@@ -40,6 +41,11 @@ type WorktreesLoadedMsg struct {
 type WorkspacePullRequestsLoadedMsg struct {
 	WorkspaceName string
 	Items         []WorktreeItem
+}
+
+type WorkspaceRemoteStatusLoadedMsg struct {
+	WorkspaceName   string
+	MissingBranches []string
 }
 
 type State struct {
@@ -111,6 +117,8 @@ var (
 					Foreground(lipgloss.Color("221"))
 	draftStatusStyle = lipgloss.NewStyle().
 				Foreground(lipgloss.Color("146"))
+	missingRemoteStatusStyle = lipgloss.NewStyle().
+					Foreground(lipgloss.Color("221"))
 	pillStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("252")).
 			Background(lipgloss.Color("238")).
@@ -135,6 +143,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case WorkspacePullRequestsLoadedMsg:
 		m.Worktrees = mergeWorkspacePullRequests(m.Worktrees, msg.WorkspaceName, msg.Items)
+		m.Cursor = clampIndex(m.Cursor, m.listLength())
+		return m, nil
+	case WorkspaceRemoteStatusLoadedMsg:
+		m.Worktrees = mergeWorkspaceRemoteStatus(m.Worktrees, msg.WorkspaceName, msg.MissingBranches)
 		m.Cursor = clampIndex(m.Cursor, m.listLength())
 		return m, nil
 	case tea.WindowSizeMsg:
@@ -337,6 +349,9 @@ func renderTreeLine(item WorktreeItem, selected bool) string {
 				line += renderBadgeSegment(pullRequestStatusStyle(item.PullRequestStatus), fmt.Sprintf(" [%s]", item.PullRequestStatus), selected)
 			}
 		}
+		if item.MissingRemote {
+			line += renderBadgeSegment(missingRemoteStatusStyle, "  [원격 브랜치 없음]", selected)
+		}
 		return line
 	}
 
@@ -442,29 +457,29 @@ func (m Model) worktreeScreenHint() string {
 	}
 	if item.Selectable {
 		if item.PullRequestNumber > 0 && item.Path == "" {
-			return renderActionPanel([]string{
+			return renderActionPanel(withWorktreeWarnings([]string{
 				"enter  PR 워크트리 만들기/열기",
 				"← →  워크스페이스 이동",
 				fmt.Sprintf("c  %s에 새 워크트리 만들기", item.WorkspaceName),
 				"esc  종료",
-			})
+			}, item))
 		}
 		if item.PullRequestNumber > 0 {
-			return renderActionPanel([]string{
+			return renderActionPanel(withWorktreeWarnings([]string{
 				"enter  PR 워크트리 열기",
 				"← →  워크스페이스 이동",
 				fmt.Sprintf("c  %s에 새 워크트리 만들기", item.WorkspaceName),
 				"d  현재 워크트리 삭제",
 				"esc  종료",
-			})
+			}, item))
 		}
-		return renderActionPanel([]string{
+		return renderActionPanel(withWorktreeWarnings([]string{
 			"enter  현재 워크트리 열기",
 			"← →  워크스페이스 이동",
 			fmt.Sprintf("c  %s에 새 워크트리 만들기", item.WorkspaceName),
 			"d  현재 워크트리 삭제",
 			"esc  종료",
-		})
+		}, item))
 	}
 	if item.PullRequestLoading {
 		return renderActionPanel([]string{
@@ -486,12 +501,39 @@ func (m Model) worktreeScreenHint() string {
 	return renderActionPanel([]string{"a  워크스페이스 추가", "← →  워크스페이스 이동", "esc  종료"})
 }
 
+func withWorktreeWarnings(lines []string, item WorktreeItem) []string {
+	if item.MissingRemote {
+		lines = append(lines, "경고: 원격 브랜치 없음")
+	}
+	return lines
+}
+
 func renderActionPanel(lines []string) string {
 	rendered := make([]string, 0, len(lines))
 	for _, line := range lines {
 		rendered = append(rendered, metaStyle.Render(line))
 	}
 	return strings.Join(rendered, "\n")
+}
+
+func mergeWorkspaceRemoteStatus(items []WorktreeItem, workspaceName string, missingBranches []string) []WorktreeItem {
+	if workspaceName == "" || len(items) == 0 {
+		return items
+	}
+
+	missing := make(map[string]struct{}, len(missingBranches))
+	for _, branch := range missingBranches {
+		missing[branch] = struct{}{}
+	}
+
+	merged := append([]WorktreeItem{}, items...)
+	for i := range merged {
+		if merged[i].WorkspaceName != workspaceName || !merged[i].Selectable || merged[i].Path == "" || merged[i].BranchName == "" {
+			continue
+		}
+		_, merged[i].MissingRemote = missing[merged[i].BranchName]
+	}
+	return merged
 }
 
 func mergeWorkspacePullRequests(items []WorktreeItem, workspaceName string, prItems []WorktreeItem) []WorktreeItem {

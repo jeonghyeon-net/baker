@@ -142,7 +142,7 @@ func runShellMode(ctx context.Context) (string, error) {
 			return "", err
 		}
 
-		selection, err := runWorktreeSelection(ctx, worktrees, registry, githubClient)
+		selection, err := runWorktreeSelection(ctx, worktrees, registry, gitClient, githubClient)
 		if err != nil {
 			return "", err
 		}
@@ -198,18 +198,29 @@ func runShellMode(ctx context.Context) (string, error) {
 	}
 }
 
-func runWorktreeSelection(ctx context.Context, worktrees []ui.WorktreeItem, registry config.Registry, githubClient bakergithub.Client) (ui.Model, error) {
+func runWorktreeSelection(ctx context.Context, worktrees []ui.WorktreeItem, registry config.Registry, gitClient bakergit.Client, githubClient bakergithub.Client) (ui.Model, error) {
 	program := tea.NewProgram(ui.NewModel(ui.State{Screen: ui.ScreenWorktrees, Worktrees: worktrees}), tea.WithAltScreen())
 
 	loadCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
 	for _, workspace := range registry.Workspaces {
+		workspace := workspace
+		branchPaths := branchPathsForWorkspace(worktrees, workspace.Name)
+
+		if len(branchPaths) > 0 {
+			go func() {
+				missingBranches, ok := loadMissingRemoteBranches(loadCtx, gitClient, workspace.RepositoryPath, branchPaths)
+				if !ok {
+					return
+				}
+				program.Send(ui.WorkspaceRemoteStatusLoadedMsg{WorkspaceName: workspace.Name, MissingBranches: missingBranches})
+			}()
+		}
+
 		if workspace.Owner == "" || workspace.Repo == "" {
 			continue
 		}
-		workspace := workspace
-		branchPaths := branchPathsForWorkspace(worktrees, workspace.Name)
 		go func() {
 			prs, err := githubClient.ListMyPullRequestsForRepository(loadCtx, workspace.Owner, workspace.Repo)
 			if err != nil {
@@ -892,6 +903,50 @@ func loadWorktreeItems(ctx context.Context, paths config.Paths, registry config.
 		}
 	}
 	return worktrees, nil
+}
+
+func loadFreshRemoteBranches(parent context.Context, gitClient bakergit.Client, repoPath string) ([]domain.BranchRef, bool) {
+	syncCtx, cancel := context.WithTimeout(parent, workspaceSyncTimeout)
+	defer cancel()
+
+	if err := gitClient.FetchAll(syncCtx, repoPath); err != nil {
+		return nil, false
+	}
+
+	branches, err := gitClient.ListBranches(syncCtx, repoPath)
+	if err != nil {
+		return nil, false
+	}
+	return branches, true
+}
+
+func loadMissingRemoteBranches(parent context.Context, gitClient bakergit.Client, repoPath string, branchPaths map[string]string) ([]string, bool) {
+	if len(branchPaths) == 0 {
+		return nil, false
+	}
+
+	remoteBranches, ok := loadFreshRemoteBranches(parent, gitClient, repoPath)
+	if !ok {
+		return nil, false
+	}
+	return missingRemoteBranches(branchPaths, remoteBranches), true
+}
+
+func missingRemoteBranches(branchPaths map[string]string, remoteBranches []domain.BranchRef) []string {
+	remoteBranchNames := make(map[string]struct{}, len(remoteBranches))
+	for _, branch := range remoteBranches {
+		remoteBranchNames[branch.Name] = struct{}{}
+	}
+
+	missing := make([]string, 0, len(branchPaths))
+	for branchName := range branchPaths {
+		if _, ok := remoteBranchNames[branchName]; ok {
+			continue
+		}
+		missing = append(missing, branchName)
+	}
+	sort.Strings(missing)
+	return missing
 }
 
 func relabelGroupItems(items []ui.WorktreeItem) []ui.WorktreeItem {

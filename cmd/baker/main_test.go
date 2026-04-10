@@ -1,11 +1,18 @@
 package main
 
 import (
+	"context"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
+	"github.com/jeonghyeon-net/baker/internal/config"
 	"github.com/jeonghyeon-net/baker/internal/domain"
+	internalexec "github.com/jeonghyeon-net/baker/internal/exec"
+	bakergit "github.com/jeonghyeon-net/baker/internal/git"
 )
 
 func TestEnsureProcessOutsidePathMovesToHomeWhenInsideTarget(t *testing.T) {
@@ -135,4 +142,110 @@ func TestPullRequestStatusLabel(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestLoadWorktreeItemsDoesNotFetchRemoteStatusSynchronously(t *testing.T) {
+	root := t.TempDir()
+	paths := config.DefaultPaths(root)
+	repoPath := filepath.Join(paths.RepositoriesRoot, "baker")
+	worktreePath := filepath.Join(paths.WorktreesRoot, "baker", "feature-login")
+
+	runner := &stubRunner{responses: map[string]stubRunnerResponse{
+		"git --git-dir " + repoPath + " worktree list --porcelain": {
+			result: internalexec.Result{Stdout: "worktree " + worktreePath + "\nHEAD deadbeef\nbranch refs/heads/feature/login\n"},
+		},
+	}}
+
+	items, err := loadWorktreeItems(context.Background(), paths, config.Registry{Workspaces: []domain.Workspace{{Name: "baker", RepositoryPath: repoPath}}}, bakergit.Client{Runner: runner})
+	if err != nil {
+		t.Fatalf("loadWorktreeItems() error = %v", err)
+	}
+	if len(items) != 2 {
+		t.Fatalf("len(items) = %d, want 2 (%#v)", len(items), items)
+	}
+	if items[1].MissingRemote {
+		t.Fatalf("items[1].MissingRemote = %v, want false before async refresh (%#v)", items[1].MissingRemote, items[1])
+	}
+}
+
+func TestLoadMissingRemoteBranchesReturnsDeletedBranches(t *testing.T) {
+	root := t.TempDir()
+	paths := config.DefaultPaths(root)
+	repoPath := filepath.Join(paths.RepositoriesRoot, "baker")
+	branchPaths := map[string]string{
+		"feature/login": filepath.Join(paths.WorktreesRoot, "baker", "feature-login"),
+		"main":          filepath.Join(paths.WorktreesRoot, "baker", "main"),
+	}
+
+	runner := &stubRunner{responses: map[string]stubRunnerResponse{
+		"git --git-dir " + repoPath + " remote": {
+			result: internalexec.Result{Stdout: "origin\n"},
+		},
+		"git --git-dir " + repoPath + " fetch --prune --force --filter=blob:none origin": {},
+		"git --git-dir " + repoPath + " for-each-ref --format=%(refname:lstrip=3)\tremote\torigin refs/remotes/origin": {
+			result: internalexec.Result{Stdout: "main\tremote\torigin\n"},
+		},
+	}}
+
+	missing, ok := loadMissingRemoteBranches(context.Background(), bakergit.Client{Runner: runner}, repoPath, branchPaths)
+	if !ok {
+		t.Fatal("loadMissingRemoteBranches() ok = false, want true")
+	}
+	if len(missing) != 1 || missing[0] != "feature/login" {
+		t.Fatalf("loadMissingRemoteBranches() = %#v, want %#v", missing, []string{"feature/login"})
+	}
+	if !containsCall(runner.calls, "git --git-dir "+repoPath+" fetch --prune --force --filter=blob:none origin") {
+		t.Fatalf("expected fetch call, got %#v", runner.calls)
+	}
+}
+
+func TestLoadMissingRemoteBranchesReturnsFalseWhenRefreshFails(t *testing.T) {
+	root := t.TempDir()
+	paths := config.DefaultPaths(root)
+	repoPath := filepath.Join(paths.RepositoriesRoot, "baker")
+	branchPaths := map[string]string{"feature/login": filepath.Join(paths.WorktreesRoot, "baker", "feature-login")}
+
+	runner := &stubRunner{responses: map[string]stubRunnerResponse{
+		"git --git-dir " + repoPath + " remote": {
+			result: internalexec.Result{Stdout: "origin\n"},
+		},
+		"git --git-dir " + repoPath + " fetch --prune --force --filter=blob:none origin": {
+			result: internalexec.Result{Stderr: "fatal: network timeout"},
+			err:    errors.New("fetch failed"),
+		},
+	}}
+
+	missing, ok := loadMissingRemoteBranches(context.Background(), bakergit.Client{Runner: runner}, repoPath, branchPaths)
+	if ok {
+		t.Fatalf("loadMissingRemoteBranches() ok = true, want false (missing=%#v)", missing)
+	}
+}
+
+type stubRunnerResponse struct {
+	result internalexec.Result
+	err    error
+}
+
+type stubRunner struct {
+	responses map[string]stubRunnerResponse
+	calls     []string
+}
+
+func (s *stubRunner) Run(ctx context.Context, name string, args ...string) (internalexec.Result, error) {
+	key := name + " " + strings.Join(args, " ")
+	s.calls = append(s.calls, key)
+	response, ok := s.responses[key]
+	if !ok {
+		return internalexec.Result{}, fmt.Errorf("unexpected command: %s", key)
+	}
+	return response.result, response.err
+}
+
+func containsCall(calls []string, want string) bool {
+	for _, call := range calls {
+		if call == want {
+			return true
+		}
+	}
+	return false
 }

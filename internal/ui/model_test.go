@@ -192,6 +192,22 @@ func TestWorktreeScreenHintShowsDeleteForMaterializedPullRequestWorktree(t *test
 	}
 }
 
+func TestWorktreeScreenHintShowsMissingRemoteWarning(t *testing.T) {
+	model := NewModel(State{
+		Screen: ScreenWorktrees,
+		Worktrees: []WorktreeItem{
+			{Label: "▾ baker", WorkspaceName: "baker"},
+			{Label: "  └─ feature-login", WorkspaceName: "baker", Path: "/tmp/baker/feature-login", BranchName: "feature/login", Selectable: true, MissingRemote: true},
+		},
+		Cursor: 1,
+	})
+
+	hint := model.worktreeScreenHint()
+	if !strings.Contains(hint, "경고: 원격 브랜치 없음") {
+		t.Fatalf("hint = %q", hint)
+	}
+}
+
 func TestWorktreeViewShowsTreeLabelsNotFullPaths(t *testing.T) {
 	model := NewModel(State{
 		Screen: ScreenWorktrees,
@@ -207,6 +223,21 @@ func TestWorktreeViewShowsTreeLabelsNotFullPaths(t *testing.T) {
 	}
 	if strings.Contains(view, "/Users/me/.pi/worktrees") {
 		t.Fatalf("view leaked full path: %q", view)
+	}
+}
+
+func TestWorktreeViewShowsMissingRemoteBadge(t *testing.T) {
+	model := NewModel(State{
+		Screen: ScreenWorktrees,
+		Worktrees: []WorktreeItem{
+			{Label: "baker", WorkspaceName: "baker"},
+			{Label: "  feature-login", WorkspaceName: "baker", Path: "/Users/me/.pi/worktrees/baker/feature-login", BranchName: "feature/login", Selectable: true, MissingRemote: true},
+		},
+	})
+
+	view := model.View()
+	if !strings.Contains(view, "원격 브랜치 없음") {
+		t.Fatalf("view = %q", view)
 	}
 }
 
@@ -297,6 +328,31 @@ func TestMergeWorkspacePullRequestsMarksExistingWorktreesAndAppendsUnmaterialize
 	}
 	if merged[3].PullRequestNumber != 77 || !strings.Contains(merged[3].Label, "PR #77") || !strings.Contains(merged[3].Label, "[리뷰 대기]") {
 		t.Fatalf("unmaterialized pr row = %#v", merged[3])
+	}
+}
+
+func TestMergeWorkspaceRemoteStatusMarksOnlyMatchingMaterializedWorktrees(t *testing.T) {
+	items := []WorktreeItem{
+		{Label: "▾ baker", WorkspaceName: "baker"},
+		{Label: "  ├─ main", WorkspaceName: "baker", WorktreeName: "main", Path: "/tmp/baker/main", BranchName: "main", Selectable: true},
+		{Label: "  ├─ feature-login", WorkspaceName: "baker", WorktreeName: "feature-login", Path: "/tmp/baker/feature-login", BranchName: "feature/login", Selectable: true},
+		{Label: "  └─ PR #42 로그인 수정", WorkspaceName: "baker", BranchName: "feature/review", PullRequestNumber: 42, PullRequestTitle: "로그인 수정", Selectable: true},
+		{Label: "▾ api", WorkspaceName: "api"},
+		{Label: "  └─ main", WorkspaceName: "api", WorktreeName: "main", Path: "/tmp/api/main", BranchName: "main", Selectable: true},
+	}
+
+	merged := mergeWorkspaceRemoteStatus(items, "baker", []string{"feature/login"})
+	if merged[1].MissingRemote {
+		t.Fatalf("merged[1].MissingRemote = %v, want false", merged[1].MissingRemote)
+	}
+	if !merged[2].MissingRemote {
+		t.Fatalf("merged[2].MissingRemote = %v, want true", merged[2].MissingRemote)
+	}
+	if merged[3].MissingRemote {
+		t.Fatalf("merged[3].MissingRemote = %v, want false for unmaterialized PR row", merged[3].MissingRemote)
+	}
+	if merged[5].MissingRemote {
+		t.Fatalf("merged[5].MissingRemote = %v, want false for other workspace", merged[5].MissingRemote)
 	}
 }
 
